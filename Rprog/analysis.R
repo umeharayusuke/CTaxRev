@@ -19,13 +19,9 @@ theme_1 <- theme_bw() +
         #legend.title = element_blank(),
         strip.background = element_blank())
 
-output_dir <- file.path("..", "output")
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir)
-}
+setwd("data")
 
 # Fig. 2 ------------------------------------------------------------------
-
 thema <- "Rev_gov_Tax_Car_Tax"
 region <- "R2OECD"
 files <- list(
@@ -81,6 +77,12 @@ g2 <- df %>%
   theme_1
 
 plot(g2)
+
+
+output_dir <- file.path("..", "output")
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir)
+}
 
 ggsave(
   filename = file.path(output_dir, "Fig2.png"),
