@@ -20,6 +20,14 @@ theme_1 <- theme_bw() +
         #legend.title = element_blank(),
         strip.background = element_blank())
 
+Mytheme <- theme_bw()+
+  theme(text = element_text(size = 16),
+        axis.text.x = element_text(angle = 45, size = 16, hjust = 1, vjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "right", 
+        legend.title = element_blank(),
+  )
+
 theme_plot <- function(base_size = 18, base_family = "Times New Roman", bg = "white") 
 {
   theme_classic(base_size = base_size, base_family = base_family) +
@@ -43,5 +51,16 @@ theme_plot <- function(base_size = 18, base_family = "Times New Roman", bg = "wh
       plot.background = element_rect(fill = bg,colour = NA),
       plot.margin = margin(18, 28, 18, 18))
 }
-
+#If I am in data directory..
 output_dir <- file.path("..", "output")
+
+Region = c("CHN","IND","XSE", "XSA", "BRA", "XLM", "XME", "XNF", "XAF", "CIS")
+Region = c("USA","CAN","XE25", "XER", "JPN", "XOC", "TUR")
+Region <- c("XE25","JPN","IND","TUR","CHN","USA","XER","XOC","XSE","XSA","CAN","BRA","XLM","CIS","XME","XNF","XAF")
+CLP <- c("SSP2_BaU_NoCC_No",
+         "SSP2_400C_2030CP_base_NoCC_No",
+         "SSP2_400C_2030CP_POP_NoCC_No",
+        "SSP2_400C_2030CP_GDP_NoCC_No")
+CLP <- c(
+         "SSP2_400C_2030CP_base_NoCC_No",
+         "SSP2_400C_2030CP_POP_NoCC_No")
