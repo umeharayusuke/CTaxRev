@@ -1,30 +1,56 @@
 # GDP_dcp -----------------------------------------------------------------
 
-year_selected = c(2050)
+year_selected <- c(2050)
 
-region_selected = c("World","R5OECD90+EU","Non-OECD")
-region_selected = c("CHN","IND","XSE", "XSA", "BRA", "XLM", "XME", "XNF", "XAF", "CIS")
-region_selected = c("USA","CAN","XE25", "XER", "JPN", "XOC", "TUR")
+region_selected <- c(
+  "USA","XE25","JPN","CAN","XER","XOC","TUR",
+  "CHN","IND","XSE","XSA",
+  "BRA","XLM",
+  "CIS",
+  "XME","XNF","XAF"
+)
 
+region_group_map <- tibble::tibble(
+  region = c(
+    "USA","XE25","JPN","CAN","XER","XOC","TUR",
+    "CHN","IND","XSE","XSA",
+    "BRA","XLM",
+    "XME","XNF","XAF",
+    "CIS"
+  ),
+  Region_group = c(
+    rep("OECD90+EU", 7),
+    rep("R5ASIA", 4),
+    rep("R5LAM", 2),
+    rep("R5MAF", 3),
+    "R5REF"
+  )
+)
 
-scenario_name <- c("SSP2_400C_2030CP_base_NoCC_No",
-#                   "SSP2_400C_2030CP_GDP_NoCC_No",
-                   "SSP2_400C_2030CP_POP_NoCC_No",
-                   "SSP2_BaU_NoCC_No")
+scenario_name <- c(
+  "SSP2_400C_2030CP_base_NoCC_No",
+  "SSP2_400C_2030CP_GDP_NoCC_No",
+  # "SSP2_400C_2030CP_POP_NoCC_No",
+  "SSP2_BaU_NoCC_No"
+)
 
-
-scenario_revise <- function(dataframe){
-  if(str_detect(scenario_name[[i]], "iadjadd") == T){
-    iadj_num <- regmatches(scenario_name[[i]], regexpr("iadjadd([0-9]+)", scenario_name[[i]]))
+scenario_revise <- function(dataframe) {
+  if (str_detect(scenario_name[[i]], "iadjadd") == TRUE) {
+    iadj_num <- regmatches(
+      scenario_name[[i]],
+      regexpr("iadjadd([0-9]+)", scenario_name[[i]])
+    )
     iadj_num <- str_sub(iadj_num, start = 10, end = 11)
     scenario <- rep(paste0("ACF", iadj_num), times = nrow(dataframe))
-  }else if(str_detect(scenario_name[[i]], "SSP2_400C_2030CP_base_NoCC_No") == T){
+  } else if (str_detect(scenario_name[[i]], "SSP2_400C_2030CP_base_NoCC_No") == TRUE) {
     scenario <- rep("NonAid", times = nrow(dataframe))
-  }else if(str_detect(scenario_name[[i]], "SSP2_400C_2030CP_GDP_NoCC_No") == T){
-    scenario <- rep("GDP", times = nrow(dataframe))
-  }else if(str_detect(scenario_name[[i]], "SSP2_400C_2030CP_POP_NoCC_No") == T){
+  } else if (str_detect(scenario_name[[i]], "SSP2_400C_2030CP_GDP_NoCC_No") == TRUE) {
+    scenario <- rep("Aid", times = nrow(dataframe))
+  } else if (str_detect(scenario_name[[i]], "SSP2_400C_2030CP_POP_NoCC_No") == TRUE) {
     scenario <- rep("POP", times = nrow(dataframe))
-  }else{
+  } else if (str_detect(scenario_name[[i]], "SSP2_BaU_NoCC_No") == TRUE) {
+    scenario <- rep("BaU", times = nrow(dataframe))
+  } else {
     scenario <- rep(scenario_name[[i]], times = nrow(dataframe))
   }
   return(scenario)
@@ -32,71 +58,133 @@ scenario_revise <- function(dataframe){
 
 dataframe_list <- vector("list", length = length(scenario_name))
 
-for (i in 1:length(scenario_name)) {
+for (i in seq_along(scenario_name)) {
   file_path <- paste0(scenario_name[[i]], ".gdx")
   analysis_GDP_s <- rgdx.param(file_path, "GDP_s")
   SCENARIO <- scenario_revise(analysis_GDP_s)
   analysis_GDP_s <- cbind(SCENARIO, analysis_GDP_s)
   dataframe_list[[i]] <- analysis_GDP_s
 }
+
 analysis_GDP_s <- do.call(rbind, dataframe_list)
 
-scenario_vec <- unlist(unique(analysis_GDP_s %>% select(SCENARIO)))
+analysis_GDP_s <- analysis_GDP_s %>%
+  rename(
+    year = Y,
+    region = R,
+    category = INS_MCR,
+    value = GDP_s
+  ) %>%
+  filter(
+    region %in% region_selected,
+    year %in% year_selected
+  ) %>%
+  left_join(region_group_map, by = "region") %>%
+  filter(!is.na(Region_group)) %>%
+  mutate(
+    category = case_when(
+      category %in% c("ROW", "IMP") ~ "Net export",
+      category == "HURB" ~ "Consumption",
+      category == "GOV"  ~ "Government",
+      category == "S-I"  ~ "Investment",
+      TRUE ~ category
+    )
+  ) %>%
+  group_by(year, Region_group, SCENARIO, category) %>%
+  summarise(value = sum(value, na.rm = TRUE), .groups = "drop")
 
-analysis_GDP_s <- analysis_GDP_s%>% 
-  rename(year=Y,region=R,category=INS_MCR,value=GDP_s) %>% 
-  filter(region %in% region_selected) %>% 
-  filter(year %in% year_selected) %>% 
-  filter(SCENARIO %in% scenario_vec) %>%
-  pivot_wider(names_from = category,values_from = value,values_fill = 0) %>% 
-  pivot_longer(cols = !c(SCENARIO,year,region),names_to="category")
+analysis_GDP_s <- analysis_GDP_s %>%
+  bind_rows(
+    analysis_GDP_s %>%
+      filter(category != "Total") %>%
+      group_by(year, Region_group, SCENARIO) %>%
+      summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
+      mutate(category = "Total")
+  )
 
-analysis_GDP_s<-analysis_GDP_s %>% 
-  aggregate(value~year+region+SCENARIO,FUN = "sum") %>% 
-  mutate(category="Total") %>% 
-  bind_rows(analysis_GDP_s)
+analysis_GDP_s_diff <- analysis_GDP_s %>%
+  group_by(year, Region_group, category) %>%
+  mutate(
+    bau_value = value[SCENARIO == "BaU"][1]
+  ) %>%
+  ungroup() %>%
+  group_by(year, Region_group) %>%
+  mutate(
+    bau_total = value[SCENARIO == "BaU" & category == "Total"][1]
+  ) %>%
+  ungroup() %>%
+  filter(SCENARIO != "BaU") %>%
+  mutate(
+    bau_percent = (value - bau_value) / bau_total
+  ) %>%
+  filter(is.finite(bau_percent)) %>%
+  mutate(
+    Region_group = factor(
+      Region_group,
+      levels = c("OECD90+EU", "R5ASIA", "R5LAM", "R5MAF", "R5REF")
+    ),
+    SCENARIO = factor(
+      SCENARIO,
+      levels = c("NonAid", "Aid", "POP")
+    ),
+    category = factor(
+      category,
+      levels = c("Consumption", "Government", "Investment", "Net export", "Total")
+    )
+  )
 
-analysis_GDP_s_diff<-group_by(analysis_GDP_s,year,region,category) %>% 
-  mutate(bau_percent=(value-value[SCENARIO=="SSP2_BaU_NoCC_No"])) %>% 
-  ungroup() %>% 
-  group_by(year,region) %>% 
-  mutate(bau_percent=bau_percent/value[SCENARIO=="SSP2_BaU_NoCC_No" & category=="Total"]) %>% 
-  filter(SCENARIO!="SSP2_BaU_NoCC_No") %>% 
-  select(-value) %>% 
-  mutate(category=recode_factor(category,"HURB"="Consumption","GOV"="Government","ROW"="Export","IMP"="Import","S-I"="Investment")) %>% 
-  mutate(region=factor(region,levels=region_selected))
-
-
-analysis_GDP_s_diff_total<-analysis_GDP_s %>% 
-  aggregate(value~year+region+SCENARIO,FUN = "sum") %>% 
-  mutate(bau_percent=(1-value/value[SCENARIO=="SSP2_BaU_NoCC_No"])*100) %>% 
-  filter(SCENARIO!="SSP2_BaU_NoCC_No") %>% 
-  mutate(region=factor(region,levels=region_selected))
-
-analysis_GDP_s_diff$region <- gsub("R5OECD90+EU", "OECD", fixed = TRUE, analysis_GDP_s_diff$region)
-#plot_list$REMF <- gsub("XAF", "Rest of Africa", plot_list$REMF)
-
-scenario_order <- c("NonAid", "GDP", "POP")
-
-analysis_GDP_s_diff$SCENARIO <- factor(analysis_GDP_s_diff$SCENARIO, levels = scenario_order)
+ipcc_gdp_cols <- c(
+  "Consumption" = "#4575B4",
+  "Government"  = "#4D4D4D",
+  "Investment"  = "#FDAE61",
+  "Net export"  = "#1A9850"
+)
 
 g <- ggplot() +
-  geom_bar(filter(analysis_GDP_s_diff, category != "Total"), 
-           mapping = aes(x = SCENARIO, y = bau_percent * 100, fill = category), stat = "identity") +
-  geom_point(filter(analysis_GDP_s_diff, category == "Total"), 
-             mapping = aes(x = SCENARIO, y = bau_percent * 100)) +
-  geom_abline(slope = 0, intercept = 0, linetype = 2) +
-  facet_wrap(~region, ncol = 3, scales = "free_y") +
-  ylab("GDP differences in 2050 (%)") +
-  scale_fill_manual(values = c("Consumption" = "grey", "Government" = "skyblue", "Export" = "orange", 
-                               "Import" = "purple", "Investment" = "yellow")) +
-  theme_1 +
-  theme(legend.position = "bottom")
+  geom_col(
+    data = filter(analysis_GDP_s_diff, category != "Total"),
+    aes(
+      x = SCENARIO,
+      y = bau_percent * 100,
+      fill = category
+    ),
+    width = 0.68,
+    color = "white",
+    linewidth = 0.15
+  ) +
+  geom_point(
+    data = filter(analysis_GDP_s_diff, category == "Total"),
+    aes(
+      x = SCENARIO,
+      y = bau_percent * 100
+    ),
+    size = 2.3,
+    color = "black"
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    linewidth = 0.35,
+    color = "grey35"
+  ) +
+  facet_wrap(
+    ~Region_group,
+    ncol = 3,
+    scales = "free_y"
+  ) +
+  scale_fill_manual(
+    values = ipcc_gdp_cols,
+    name = NULL
+  ) +
+  labs(
+    x = NULL,
+    y = "GDP differences in 2050 (%)"
+  ) +
+  Mytheme
 
 plot(g)
 
-
-name  <- "GDP_dcp_2.png"
+name  <- "GDP_dcp.png"
 
 ggsave(
   filename = file.path(output_dir, name),
@@ -106,89 +194,441 @@ ggsave(
   dpi = 600,
 )
 
+# (Export change rate)-(import change rate)>>bad example ---------------------------------------
 
-##NonOECD-----------------------------------------------------------------------------------------
-df_base <- rgdx.param("global_17_SSP2_BaU_NoCC_No.gdx", "PSAM_value")
-df_gdp <- rgdx.param("global_17_SSP2_400C_2030CP_base_NoCC_No.gdx", "PSAM_value")
-df_pop <- rgdx.param("global_17_SSP2_400C_2030CP_POP_NoCC_No.gdx", "PSAM_value")
+df_base <- rgdx.param(
+  "global_17_SSP2_400C_2030CP_base_NoCC_No.gdx",
+  "PSAM_value"
+)
+
+df_gdp <- rgdx.param(
+  "global_17_SSP2_400C_2030CP_GDP_NoCC_No.gdx",
+  "PSAM_value"
+)
 
 com_categories <- list(
   Trans = c("COM_TRS", "COM_CSS"),
-  Min = c("COM_COA", "COM_OIL", "COM_OMN", "COM_GAS"),
-  Manu = c("COM_FPR", "COM_OMT", "COM_LIN", "COM_PPP", "COM_CRP", "COM_NMM", "COM_I_S", "COM_NFM", "COM_OMF"),
-  Ene = c("COM_P_P", "COM_COP", "COM_ELY"),
-  Agr = c("COM_pdr", "COM_wht", "COM_gro", "COM_osd", "COM_oth_a", "COM_ctl", "COM_rmk", "COM_oth_l", "COM_FRS")
+  Min   = c("COM_COA", "COM_OIL", "COM_OMN", "COM_GAS"),
+  Manu  = c(
+    "COM_FPR", "COM_OMT", "COM_LIN", "COM_PPP", "COM_CRP",
+    "COM_NMM", "COM_I_S", "COM_NFM", "COM_OMF"
+  ),
+  Ene   = c("COM_P_P", "COM_COP", "COM_ELY"),
+  Agr   = c(
+    "COM_pdr", "COM_wht", "COM_gro", "COM_osd", "COM_oth_a",
+    "COM_ctl", "COM_rmk", "COM_oth_l", "COM_FRS"
+  )
 )
 
-non_oecd_regions <- c("IND", "XSE", "XSA", "BRA", "XLM", "CIS", "XME", "XNF", "XAF")
+region_group_map <- tibble::tibble(
+  Region = c(
+    "USA", "XE25", "JPN", "CAN", "XER", "XOC", "TUR",
+    "CHN", "IND", "XSE", "XSA",
+    "BRA", "XLM",
+    "XME", "XNF", "XAF",
+    "CIS"
+  ),
+  Region_group = c(
+    rep("OECD90+EU", 7),
+    rep("R5ASIA", 4),
+    rep("R5LAM", 2),
+    rep("R5MAF", 3),
+    "R5REF"
+  )
+)
 
-calc_trade <- function(df, region_code, flow) {
+target_regions <- region_group_map$Region
+
+calc_trade <- function(df, region_codes, flow) {
   partner_col <- if (flow == "exp") "i4" else "i3"
-  com_col <- if (flow == "exp") "i3" else "i4"
+  com_col     <- if (flow == "exp") "i3" else "i4"
 
   bind_rows(lapply(names(com_categories), function(sector) {
     df %>%
-      filter(grepl("ROW", .data[[partner_col]]), i2 == region_code, .data[[com_col]] %in% com_categories[[sector]]) %>%
-      group_by(i1) %>%
+      filter(
+        grepl("ROW", .data[[partner_col]]),
+        i2 %in% region_codes,
+        .data[[com_col]] %in% com_categories[[sector]]
+      ) %>%
+      left_join(region_group_map, by = c("i2" = "Region")) %>%
+      filter(!is.na(Region_group)) %>%
+      group_by(i1, Region_group) %>%
       summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
       mutate(Sector = sector)
   }))
 }
 
-calc_ratio <- function(df, base, region_code, flow, scenario_name) {
-  calc_trade(df, region_code, flow) %>%
-    left_join(
-      calc_trade(base, region_code, flow) %>% select(i1, Sector, base = value),
-      by = c("i1", "Sector")
-    ) %>%
-    mutate(value = value / base, dataset = scenario_name) %>%
-    select(i1, Sector, dataset, value)
-}
+calc_flow_diff <- function(flow) {
+  base <- calc_trade(df_base, target_regions, flow) %>%
+    rename(base = value)
 
-calc_region <- function(region_code) {
-  exp_ratio <- bind_rows(
-    calc_ratio(df_gdp, df_base, region_code, "exp", "GDP"),
-    calc_ratio(df_pop, df_base, region_code, "exp", "POP")
-  ) %>%
-    rename(exp_ratio = value)
+  gdp <- calc_trade(df_gdp, target_regions, flow) %>%
+    rename(gdp = value)
 
-  imp_ratio <- bind_rows(
-    calc_ratio(df_gdp, df_base, region_code, "imp", "GDP"),
-    calc_ratio(df_pop, df_base, region_code, "imp", "POP")
-  ) %>%
-    rename(imp_ratio = value)
-
-  exp_ratio %>%
-    left_join(imp_ratio, by = c("i1", "Sector", "dataset")) %>%
+  gdp %>%
+    left_join(base, by = c("i1", "Region_group", "Sector")) %>%
     mutate(
       i1 = as.numeric(as.character(i1)),
-      value = 100 * (exp_ratio - imp_ratio),
-      Region = region_code
+      value = 100 * (gdp - base) / base,
+      flow = flow
     ) %>%
-    filter(i1 >= 2030, i1 <= 2050, is.finite(value)) %>%
-    select(i1, Sector, dataset, Region, value)
+    filter(
+      i1 >= 2030,
+      i1 <= 2050,
+      is.finite(value)
+    ) %>%
+    select(i1, Sector, Region_group, flow, value)
 }
 
-df <- bind_rows(lapply(non_oecd_regions, calc_region))
+exp_diff <- calc_flow_diff("exp") %>%
+  rename(exp_diff = value)
 
-g <- ggplot(df, aes(x = i1, y = value, fill = Sector)) +
-  geom_hline(yintercept = 0, linewidth = 0.3, color = "grey40") +
-  geom_area(position = "stack", alpha = 0.85, linewidth = 0.15, color = "white") +
-  facet_grid(dataset ~ Region, scales = "free_y") +
-  scale_x_continuous(breaks = c(2030, 2040, 2050), limits = c(2029, 2051)) +
-  scale_fill_brewer(palette = "Set2", name = "Sector") +
-  labs(x = NULL, y = "Export ratio − Import ratio (percentage points)") +
-  theme_1 +
+imp_diff <- calc_flow_diff("imp") %>%
+  rename(imp_diff = value)
+
+df <- exp_diff %>%
+  left_join(
+    imp_diff,
+    by = c("i1", "Sector", "Region_group")
+  ) %>%
+  mutate(
+    value = exp_diff - imp_diff,
+    Region_group = factor(
+      Region_group,
+      levels = c("OECD90+EU", "R5ASIA", "R5LAM", "R5MAF", "R5REF")
+    )
+  ) %>%
+  select(i1, Sector, Region_group, value)
+
+calc_flow_diff <- function(flow) {
+  base <- calc_trade(df_base, target_regions, flow) %>%
+    rename(base = value)
+
+  gdp <- calc_trade(df_gdp, target_regions, flow) %>%
+    rename(gdp = value)
+
+  gdp %>%
+    left_join(base, by = c("i1", "Region_group", "Sector")) %>%
+    mutate(
+      i1 = as.numeric(as.character(i1)),
+      value = 100 * (gdp - base) / base,
+      flow = flow
+    ) %>%
+    filter(
+      i1 == 2050,
+      is.finite(value)
+    ) %>%
+    select(i1, Sector, Region_group, flow, value)
+}
+ipcc_sector_cols <- c(
+  "Trans" = "#4575B4",
+  "Min"   = "#8C510A",
+  "Manu"  = "#D73027",
+  "Ene"   = "#FDAE61",
+  "Agr"   = "#1A9850"
+)
+g <- ggplot(
+  df,
+  aes(
+    x = Region_group,
+    y = value,
+    fill = Region_group
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linewidth = 0.35,
+    color = "grey35"
+  ) +
+  geom_col(
+    width = 0.72
+  ) +
+  facet_wrap(
+    ~Sector,
+    ncol = 3,
+    scales = "free_y"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "OECD90+EU" = "#4575B4",
+      "R5ASIA"    = "#D73027",
+      "R5LAM"     = "#1A9850",
+      "R5MAF"     = "#FDAE61",
+      "R5REF"     = "#8C510A"
+    ),
+    name = NULL
+  ) +
+  labs(
+    x = NULL,
+    y = "Difference in export-import balance in 2050 (%)"
+  ) +
+  theme_minimal(base_size = 11) +
   theme(
-    legend.position = "bottom",
     panel.grid.minor = element_blank(),
-    strip.background = element_rect(fill = "grey90", color = NA),
-    strip.text = element_text(face = "bold"),
-    axis.text.x = element_text(angle = 0, hjust = 0.5)
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(
+      linewidth = 0.25,
+      color = "grey85"
+    ),
+    axis.text.x = element_text(
+      angle = 35,
+      hjust = 1,
+      color = "grey20"
+    ),
+    axis.text.y = element_text(color = "grey20"),
+    axis.title.y = element_text(
+      color = "grey20",
+      margin = margin(r = 8)
+    ),
+    strip.background = element_blank(),
+    strip.text = element_text(
+      face = "bold",
+      size = 11,
+      color = "grey15"
+    ),
+    legend.position = "none",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
   )
 
 print(g)
 
+#Net export change (volume)--------------------------------
+
+df_base <- rgdx.param(
+  "global_17_SSP2_400C_2030CP_base_NoCC_No.gdx",
+  "PSAM_value"
+)
+
+df_gdp <- rgdx.param(
+  "global_17_SSP2_400C_2030CP_GDP_NoCC_No.gdx",
+  "PSAM_value"
+)
+
+com_categories <- list(
+  Trans = c("COM_TRS", "COM_CSS"),
+  Min   = c("COM_COA", "COM_OIL", "COM_OMN", "COM_GAS"),
+  Manu  = c(
+    "COM_FPR", "COM_OMT", "COM_LIN", "COM_PPP", "COM_CRP",
+    "COM_NMM", "COM_I_S", "COM_NFM", "COM_OMF"
+  ),
+  Ene   = c("COM_P_P", "COM_COP", "COM_ELY"),
+  Agr   = c(
+    "COM_pdr", "COM_wht", "COM_gro", "COM_osd", "COM_oth_a",
+    "COM_ctl", "COM_rmk", "COM_oth_l", "COM_FRS"
+  )
+)
+
+region_group_map <- tibble::tibble(
+  Region = c(
+    "USA", "XE25", "JPN", "CAN", "XER", "XOC", "TUR",
+    "CHN", "IND", "XSE", "XSA",
+    "BRA", "XLM",
+    "XME", "XNF", "XAF",
+    "CIS"
+  ),
+  Region_group = c(
+    rep("OECD90+EU", 7),
+    rep("R5ASIA", 4),
+    rep("R5LAM", 2),
+    rep("R5MAF", 3),
+    "R5REF"
+  )
+)
+
+target_regions <- region_group_map$Region
+
+calc_trade_value <- function(df, region_codes, flow) {
+  partner_col <- if (flow == "exp") "i4" else "i3"
+  com_col     <- if (flow == "exp") "i3" else "i4"
+
+  bind_rows(lapply(names(com_categories), function(sector) {
+    df %>%
+      filter(
+        grepl("ROW", .data[[partner_col]]),
+        i2 %in% region_codes,
+        .data[[com_col]] %in% com_categories[[sector]]
+      ) %>%
+      left_join(region_group_map, by = c("i2" = "Region")) %>%
+      filter(!is.na(Region_group)) %>%
+      group_by(i1, Region_group) %>%
+      summarise(value = sum(value, na.rm = TRUE), .groups = "drop") %>%
+      mutate(Sector = sector)
+  }))
+}
+
+exp_base <- calc_trade_value(df_base, target_regions, "exp") %>%
+  rename(exp_base = value)
+
+imp_base <- calc_trade_value(df_base, target_regions, "imp") %>%
+  rename(imp_base = value)
+
+exp_gdp <- calc_trade_value(df_gdp, target_regions, "exp") %>%
+  rename(exp_gdp = value)
+
+imp_gdp <- calc_trade_value(df_gdp, target_regions, "imp") %>%
+  rename(imp_gdp = value)
+
+df_net <- exp_base %>%
+  left_join(imp_base, by = c("i1", "Region_group", "Sector")) %>%
+  left_join(exp_gdp,  by = c("i1", "Region_group", "Sector")) %>%
+  left_join(imp_gdp,  by = c("i1", "Region_group", "Sector")) %>%
+  mutate(
+    i1 = as.numeric(as.character(i1)),
+    net_base = exp_base - imp_base,
+    net_gdp  = exp_gdp - imp_gdp,
+    value = net_gdp - net_base,
+    Region_group = factor(
+      Region_group,
+      levels = c("OECD90+EU", "R5ASIA", "R5LAM", "R5MAF", "R5REF")
+    ),
+    Sector = factor(
+      Sector,
+      levels = c("Trans", "Min", "Manu", "Ene", "Agr")
+    )
+  ) %>%
+  filter(
+    i1 == 2050,
+    is.finite(value)
+  ) %>%
+  select(i1, Sector, Region_group, value)
+
+ipcc_region_cols <- c(
+  "OECD90+EU" = "#4575B4",
+  "R5ASIA"    = "#D73027",
+  "R5LAM"     = "#1A9850",
+  "R5MAF"     = "#FDAE61",
+  "R5REF"     = "#8C510A"
+)
+
+g <- ggplot(
+  df_net,
+  aes(
+    x = Region_group,
+    y = value,
+    fill = Region_group
+  )
+) +
+  geom_hline(
+    yintercept = 0,
+    linewidth = 0.4,
+    color = "black"
+  ) +
+  geom_col(
+    width = 0.72,
+    color = NA
+  ) +
+  facet_wrap(
+    ~Sector,
+    ncol = 3,
+    scales = "free_y"
+  ) +
+  scale_fill_manual(
+    values = ipcc_region_cols,
+    name = NULL
+  ) +
+  labs(
+    x = NULL,
+    y = "Change in net exports in 2050\n(GDP Aid − NonAid)"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(
+      linewidth = 0.25,
+      color = "grey85"
+    ),
+    axis.text.x = element_text(
+      angle = 35,
+      hjust = 1,
+      color = "grey20"
+    ),
+    axis.text.y = element_text(color = "grey20"),
+    axis.title.y = element_text(
+      color = "grey20",
+      margin = margin(r = 8)
+    ),
+    strip.background = element_blank(),
+    strip.text = element_text(
+      face = "bold",
+      size = 11,
+      color = "grey15"
+    ),
+    legend.position = "none",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
+  )
+
+print(g)
+
+
+# Normalize net export change by GDP_load -------------------------------------
+
+gdp_base_load <- rgdx.param(
+  "global_17_SSP2_400C_2030CP_base_NoCC_No.gdx",
+  "GDP_load"
+) %>%
+  rename(
+    i1 = i,
+    Region = j,
+    gdp_base = value
+  ) %>%
+  mutate(
+    i1 = as.numeric(as.character(i1)),
+    gdp_base = as.numeric(gdp_base)
+  ) %>%
+  filter(
+    i1 == 2050,
+    Region %in% target_regions
+  ) %>%
+  left_join(region_group_map, by = "Region") %>%
+  filter(!is.na(Region_group)) %>%
+  group_by(i1, Region_group) %>%
+  summarise(
+    gdp_base = sum(gdp_base, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+df_net_gdp_ratio <- df_net %>%
+  left_join(
+    gdp_base_load,
+    by = c("i1", "Region_group")
+  ) %>%
+  mutate(
+    value_gdp_ratio = 100 * value / gdp_base
+  ) %>%
+  filter(is.finite(value_gdp_ratio))
+
+g_ratio <- ggplot(
+  df_net_gdp_ratio,
+  aes(
+    x = Region_group,
+    y = value_gdp_ratio,
+    fill = Region_group
+  )
+) +
+  geom_hline(yintercept = 0, linewidth = 0.4, color = "black") +
+  geom_col(width = 0.72, color = NA) +
+  facet_wrap(~Sector, ncol = 3, scales = "free_y") +
+  scale_fill_manual(values = ipcc_region_cols, name = NULL) +
+  labs(
+    x = NULL,
+    y = "Change in net exports in 2050\n(% of GDP)"
+  ) +
+  Mytheme
+
+print(g_ratio)
+
+name  <- "Trade.png"
+
+ggsave(
+  filename = file.path(output_dir, name),
+  plot = g_ratio,
+  width = 12,
+  height = 8,
+  dpi = 600,
+)
 #Fossil share------------------------
 
 
@@ -958,3 +1398,73 @@ ggsave(
   height = 8,
   dpi = 600,
 )
+
+#Cumulative GDP 17 region---------------------
+Region <- c(
+  "USA","XE25","JPN","CAN","XER","XOC","TUR","CHN","IND","XSE","XSA","BRA","XLM","CIS","XME","XNF","XAF"
+)
+
+CLP <- c(
+  "SSP2_400C_2030CP_base_NoCC_No",
+  "SSP2_400C_2030CP_GDP_NoCC_No"
+)
+
+df_cost <- rgdx.param("global_17_IAMC.gdx", "IAMC_template") %>%
+  filter(VEMF == "Pol_Cos_GDP_Los_rat_NPV_5pc") %>%
+  filter(SCENARIO %in% CLP) %>%
+  filter(REMF %in% Region) %>%
+  mutate(
+    SCENARIO = case_when(
+      SCENARIO == "SSP2_400C_2030CP_base_NoCC_No" ~ "NonAid",
+      SCENARIO == "SSP2_400C_2030CP_GDP_NoCC_No"  ~ "Aid",
+      TRUE ~ SCENARIO
+    ),
+    Region_plot = factor(REMF, levels = Region),
+    Year = as.numeric(as.character(YEMF)),
+    value = as.numeric(IAMC_Template)
+  ) %>%
+  filter(Year == 2050) %>%
+  select(SCENARIO, Region_plot, value) %>%
+  filter(is.finite(value))
+
+df_plot <- df_cost %>%
+  pivot_wider(
+    names_from = SCENARIO,
+    values_from = value
+  ) %>%
+  filter(!is.na(NonAid), !is.na(Aid))
+
+p <- ggplot(df_plot, aes(x = Region_plot)) +
+  geom_segment(
+    aes(
+      xend = Region_plot,
+      y = NonAid,
+      yend = Aid
+    ),
+    color = "grey50",
+    linetype = "dashed",
+    linewidth = 0.7
+  ) +
+  geom_point(
+    aes(y = NonAid, color = "NonAid"),
+    size = 3
+  ) +
+  geom_point(
+    aes(y = Aid, color = "Aid"),
+    size = 3
+  ) +
+  scale_color_manual(
+    values = c(
+      "NonAid" = "#D55E00",
+      "Aid" = "#0072B2"
+    )
+  ) +
+  labs(
+    x = NULL,
+    y = "Policy cost (% GDP loss, NPV 5%)",
+    title = "Policy cost in 2050",
+    color = NULL
+  ) +
+  Mytheme
+
+print(p)
