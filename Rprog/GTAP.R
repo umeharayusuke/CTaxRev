@@ -1,6 +1,3 @@
-
-
-
 # GDP_dcp -----------------------------------------------------------------
 
 year_selected = c(2050)
@@ -203,7 +200,7 @@ df_pe <- rgdx.param("global_17_IAMC.gdx", "IAMC_template") %>%
   mutate(
     SCENARIO = case_when(
       SCENARIO == "SSP2_400C_2030CP_base_NoCC_No" ~ "NonAid",
-      SCENARIO == "SSP2_400C_2030CP_POP_NoCC_No" ~ "Aid",
+      SCENARIO == "SSP2_400C_2030CP_GDP_NoCC_No" ~ "Aid",
       TRUE ~ SCENARIO
     ),
     Region = REMF,
@@ -262,7 +259,7 @@ df_pe <- rgdx.param("global_17_IAMC.gdx","IAMC_template") %>%
   filter(SCENARIO %in% CLP, REMF %in% Region) %>%
   mutate(SCENARIO=case_when(
     SCENARIO=="SSP2_400C_2030CP_base_NoCC_No" ~ "NonAid",
-    SCENARIO=="SSP2_400C_2030CP_POP_NoCC_No" ~ "Aid",
+    SCENARIO=="SSP2_400C_2030CP_GDP_NoCC_No" ~ "Aid",
     TRUE ~ SCENARIO),
     Region=REMF, Year=as.numeric(as.character(YEMF)),
     value=as.numeric(IAMC_Template)) %>%
@@ -304,7 +301,7 @@ p_map <- ggplot(world17_plot) +
 print(p_map)
 
 
-#R5 consumption loss-----------------------
+#R5 consumption loss pentagon-----------------------
 CLP <- c("SSP2_400C_2030CP_NoCC_No",
           "SSP2_400C_2030CP_trs100_POP_NoCC_No",
         "SSP2_400C_2030CP_trs100_GDPP_NoCC_No")
@@ -675,4 +672,289 @@ ggsave(
   height = 11,
   dpi = 600,
   bg = "white"
+)
+
+#Policy cost map------------------------------------------------------------
+Region <- c("XE25","JPN","IND","TUR","CHN","USA","XER","XOC","XSE","XSA","CAN","BRA","XLM","CIS","XME","XNF","XAF")
+
+CLP <- c("SSP2_400C_2030CP_POP_NoCC_No","SSP2_400C_2030CP_base_NoCC_No", "SSP2_400C_2030CP_GDP_NoCC_No")
+CLP <- c("SSP2_400C_2030CP_base_NoCC_No", "SSP2_400C_2030CP_GDP_NoCC_No")
+
+Indicator <- c("Pol_Cos_GDP_Los_rat_NPV_5pc")
+Indicator <- c("Pol_Cos_Cns_Los_rat_NPV_5pc")
+#Indicator <- c("Pol_Cos_Cns_Los_NPV_5pc")
+
+RegionmapRagg.map <- read.table("RegionmapRagg.map", header=FALSE, stringsAsFactors=FALSE)
+
+Region_map <- RegionmapRagg.map %>%
+  as_tibble() %>%
+  select(iso3c=1, Region=3) %>%
+  mutate(Region=str_remove_all(Region,'"'),
+         Region=str_remove(Region,"^R17")) %>%
+  filter(Region %in% Region)
+
+
+df_cost <- rgdx.param("global_17_IAMC.gdx", "IAMC_template") %>%
+  filter(VEMF %in% Indicator) %>%
+  filter(SCENARIO %in% CLP, REMF %in% Region) %>%
+  mutate(
+    SCENARIO = case_when(
+      SCENARIO == "SSP2_400C_2030CP_base_NoCC_No" ~ "NonAid",
+      SCENARIO == "SSP2_400C_2030CP_POP_NoCC_No"  ~ "POPAid",
+      SCENARIO == "SSP2_400C_2030CP_GDP_NoCC_No"  ~ "GDPAid",
+      TRUE ~ SCENARIO
+    ),
+    Region = REMF,
+    Year = as.numeric(as.character(YEMF)),
+    value = as.numeric(IAMC_Template)
+  ) %>%
+  filter(Year == 2050) %>%
+  select(SCENARIO, Region, Year, value) %>%
+  filter(is.finite(value))
+
+world17_cost <- ne_countries(scale = "medium", returnclass = "sf") %>%
+  select(iso3c = iso_a3, geometry) %>%
+  filter(iso3c != "ATA") %>%
+  left_join(Region_map, by = "iso3c") %>%
+  left_join(df_cost, by = "Region")
+
+world17_cost_plot <- world17_cost %>%
+  filter(!is.na(SCENARIO), !is.na(value))
+world17_cost_plot <- world17_cost_plot %>%
+  mutate(SCENARIO = factor(SCENARIO,levels = c("NonAid", "GDPAid")) )
+
+p_map_cost <- ggplot(world17_cost_plot) +
+  geom_sf(aes(fill = value), color = "grey70", linewidth = 0.1) +
+  scale_fill_gradient(
+    low = "#f7fbff",
+    high = "#08306b",
+    na.value = "grey90",
+    name = "Policy cost\nGDP loss ratio\nNPV 5%"
+  ) +
+  facet_grid(rows = vars(SCENARIO)) +
+  guides(
+    fill = guide_colorbar(
+      title.position = "top",
+      barwidth = unit(10, "cm"),
+      barheight = unit(0.4, "cm")
+    )
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.box = "horizontal",
+    strip.background = element_blank()
+  )
+
+print(p_map_cost)
+
+name  <- "Pol_Cns_map.png"
+
+ggsave(
+  filename = file.path(output_dir, name),
+  plot = p_map_cost,
+  width = 12,
+  height = 8,
+  dpi = 600,
+)
+
+df_recovery <- df_cost %>%
+  select(SCENARIO, Region, value) %>%
+  pivot_wider(names_from = SCENARIO, values_from = value) %>%
+  mutate(
+    recovery_GDPAid =  (NonAid - GDPAid) 
+  ) %>%
+  pivot_longer(
+    cols = starts_with("recovery_"),
+    names_to = "SCENARIO",
+    values_to = "recovery"
+  ) %>%
+  mutate(
+    SCENARIO = str_remove(SCENARIO, "^recovery_")
+  ) %>%
+  filter(is.finite(recovery))
+
+world17_recovery <- ne_countries(scale = "medium", returnclass = "sf") %>%
+  select(iso3c = iso_a3, geometry) %>%
+  filter(iso3c != "ATA") %>%
+  left_join(Region_map, by = "iso3c") %>%
+  left_join(df_recovery, by = "Region")
+
+world17_recovery_plot <- world17_recovery %>%
+  filter(!is.na(SCENARIO), !is.na(recovery))
+
+lim <- max(abs(world17_recovery_plot$recovery), na.rm = TRUE)
+
+p_map_recovery <- ggplot(world17_recovery_plot) +
+  geom_sf(aes(fill = recovery), color = "grey70", linewidth = 0.1) +
+  scale_fill_gradient2(
+    low = "#2166ac",
+    mid = "white",
+    high = "#b2182b",
+    midpoint = 0,
+    limits = c(-lim, lim),
+    na.value = "grey90",
+    name = "Recovery rate from NonAid (%)"
+  ) +
+  #facet_wrap(~SCENARIO) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+
+print(p_map_recovery)
+
+name  <- "Pol_Cns_map_diff.png"
+
+ggsave(
+  filename = file.path(output_dir, name),
+  plot = p_map_recovery,
+  width = 12,
+  height = 8,
+  dpi = 600,
+)
+#Policy cost map POP ver------------------------------------------------
+Region <- c("XE25","JPN","IND","TUR","CHN","USA","XER","XOC","XSE","XSA","CAN","BRA","XLM","CIS","XME","XNF","XAF")
+
+CLP <- c("SSP2_400C_2030CP_POP_NoCC_No","SSP2_400C_2030CP_base_NoCC_No", "SSP2_400C_2030CP_GDP_NoCC_No")
+CLP <- c("SSP2_400C_2030CP_base_NoCC_No", "SSP2_400C_2030CP_POP_NoCC_No")
+
+Indicator <- c("Pol_Cos_GDP_Los_rat_NPV_5pc")
+Indicator <- c("Pol_Cos_Cns_Los_rat_NPV_5pc")
+#Indicator <- c("Pol_Cos_Cns_Los_NPV_5pc")
+
+RegionmapRagg.map <- read.table("RegionmapRagg.map", header=FALSE, stringsAsFactors=FALSE)
+
+Region_map <- RegionmapRagg.map %>%
+  as_tibble() %>%
+  select(iso3c=1, Region=3) %>%
+  mutate(Region=str_remove_all(Region,'"'),
+         Region=str_remove(Region,"^R17")) %>%
+  filter(Region %in% Region)
+
+
+df_cost <- rgdx.param("global_17_IAMC.gdx", "IAMC_template") %>%
+  filter(VEMF %in% Indicator) %>%
+  filter(SCENARIO %in% CLP, REMF %in% Region) %>%
+  mutate(
+    SCENARIO = case_when(
+      SCENARIO == "SSP2_400C_2030CP_base_NoCC_No" ~ "NonAid",
+      SCENARIO == "SSP2_400C_2030CP_POP_NoCC_No"  ~ "POPAid",
+      SCENARIO == "SSP2_400C_2030CP_GDP_NoCC_No"  ~ "GDPAid",
+      TRUE ~ SCENARIO
+    ),
+    Region = REMF,
+    Year = as.numeric(as.character(YEMF)),
+    value = as.numeric(IAMC_Template)
+  ) %>%
+  filter(Year == 2050) %>%
+  select(SCENARIO, Region, Year, value) %>%
+  filter(is.finite(value))
+
+world17_cost <- ne_countries(scale = "medium", returnclass = "sf") %>%
+  select(iso3c = iso_a3, geometry) %>%
+  filter(iso3c != "ATA") %>%
+  left_join(Region_map, by = "iso3c") %>%
+  left_join(df_cost, by = "Region")
+
+world17_cost_plot <- world17_cost %>%
+  filter(!is.na(SCENARIO), !is.na(value))
+world17_cost_plot <- world17_cost_plot %>%
+  mutate(SCENARIO = factor(SCENARIO,levels = c("NonAid", "POPAid")) )
+
+p_map_cost <- ggplot(world17_cost_plot) +
+  geom_sf(aes(fill = value), color = "grey70", linewidth = 0.1) +
+  scale_fill_gradient(
+    low = "#f7fbff",
+    high = "#08306b",
+    na.value = "grey90",
+    name = "Policy cost\nGDP loss ratio\nNPV 5%"
+  ) +
+  facet_grid(rows = vars(SCENARIO)) +
+  guides(
+    fill = guide_colorbar(
+      title.position = "top",
+      barwidth = unit(10, "cm"),
+      barheight = unit(0.4, "cm")
+    )
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.box = "horizontal",
+    strip.background = element_blank()
+  )
+
+print(p_map_cost)
+
+name  <- "Pol_Cns_map_POP.png"
+
+ggsave(
+  filename = file.path(output_dir, name),
+  plot = p_map_cost,
+  width = 12,
+  height = 8,
+  dpi = 600,
+)
+
+df_recovery <- df_cost %>%
+  select(SCENARIO, Region, value) %>%
+  pivot_wider(names_from = SCENARIO, values_from = value) %>%
+  mutate(
+    recovery_GDPAid =  (NonAid - POPAid) 
+  ) %>%
+  pivot_longer(
+    cols = starts_with("recovery_"),
+    names_to = "SCENARIO",
+    values_to = "recovery"
+  ) %>%
+  mutate(
+    SCENARIO = str_remove(SCENARIO, "^recovery_")
+  ) %>%
+  filter(is.finite(recovery))
+
+world17_recovery <- ne_countries(scale = "medium", returnclass = "sf") %>%
+  select(iso3c = iso_a3, geometry) %>%
+  filter(iso3c != "ATA") %>%
+  left_join(Region_map, by = "iso3c") %>%
+  left_join(df_recovery, by = "Region")
+
+world17_recovery_plot <- world17_recovery %>%
+  filter(!is.na(SCENARIO), !is.na(recovery))
+
+lim <- max(abs(world17_recovery_plot$recovery), na.rm = TRUE)
+
+p_map_recovery <- ggplot(world17_recovery_plot) +
+  geom_sf(aes(fill = recovery), color = "grey70", linewidth = 0.1) +
+  scale_fill_gradient2(
+    low = "#2166ac",
+    mid = "white",
+    high = "#b2182b",
+    midpoint = 0,
+    limits = c(-lim, lim),
+    na.value = "grey90",
+    name = "Recovery rate from NonAid (%)"
+  ) +
+  #facet_wrap(~SCENARIO) +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    plot.title = element_text(face = "bold")
+  )
+
+print(p_map_recovery)
+
+name  <- "Pol_Cns_map_diff_POP.png"
+
+ggsave(
+  filename = file.path(output_dir, name),
+  plot = p_map_recovery,
+  width = 12,
+  height = 8,
+  dpi = 600,
 )
