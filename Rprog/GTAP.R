@@ -406,14 +406,14 @@ df_gdp <- rgdx.param(
 )
 
 com_categories <- list(
-  Trans = c("COM_TRS", "COM_CSS"),
-  Min   = c("COM_COA", "COM_OIL", "COM_OMN", "COM_GAS"),
-  Manu  = c(
+  Transport = c("COM_TRS", "COM_CSS"),
+  Mining   = c("COM_COA", "COM_OIL", "COM_OMN", "COM_GAS"),
+  Manufacturing  = c(
     "COM_FPR", "COM_OMT", "COM_LIN", "COM_PPP", "COM_CRP",
     "COM_NMM", "COM_I_S", "COM_NFM", "COM_OMF"
   ),
-  Ene   = c("COM_P_P", "COM_COP", "COM_ELY"),
-  Agr   = c(
+  Energy   = c("COM_P_P", "COM_COP", "COM_ELY"),
+  Agriculture   = c(
     "COM_pdr", "COM_wht", "COM_gro", "COM_osd", "COM_oth_a",
     "COM_ctl", "COM_rmk", "COM_oth_l", "COM_FRS"
   )
@@ -484,7 +484,7 @@ df_net <- exp_base %>%
     ),
     Sector = factor(
       Sector,
-      levels = c("Trans", "Min", "Manu", "Ene", "Agr")
+      levels = c("Transport", "Mining", "Manufacturing", "Energy", "Agriculture")
     )
   ) %>%
   filter(
