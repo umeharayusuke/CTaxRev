@@ -11,6 +11,7 @@ library(lemon)
 library(purrr)
 library(rnaturalearthdata)
 library(rnaturalearth)
+library(gamstransfer)
 
 theme_1 <- theme_bw() +
   theme(text = element_text(size = 16),
@@ -61,6 +62,5 @@ CLP <- c("SSP2_BaU_NoCC_No",
          "SSP2_400C_2030CP_base_NoCC_No",
          "SSP2_400C_2030CP_POP_NoCC_No",
         "SSP2_400C_2030CP_GDP_NoCC_No")
-CLP <- c(
-         "SSP2_400C_2030CP_base_NoCC_No",
+CLP <- c("SSP2_400C_2030CP_base_NoCC_No",
          "SSP2_400C_2030CP_POP_NoCC_No")
