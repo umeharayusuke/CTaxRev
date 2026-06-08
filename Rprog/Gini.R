@@ -69,6 +69,30 @@ df_gini <- df_lorenz |>
   group_modify(~ calc_gini_from_lorenz(.x)) |> 
   ungroup() |> 
   arrange(source, Y, Ref)
+##output---------------------------------------------------------------
+df_gini_gdx <- df_gini |>
+  mutate(
+    source = as.character(source),Ref = as.character(Ref),Y = as.character(Y),Gini = as.numeric(Gini)) |>
+  filter(!is.na(Gini)) |> 
+  rename(value=Gini)
+
+m <- Container$new()
+src <- Set$new(
+  m,"src", records = data.frame(uni = unique(df_gini_gdx$source))
+)
+Ref <- Set$new(
+  m,"Ref", records = data.frame(uni = unique(df_gini_gdx$Ref))
+)
+Y <- Set$new(
+  m, "Y", records = data.frame(uni = unique(df_gini_gdx$Y))
+)
+Parameter$new(
+  m, "Gini", domain = list(src, Ref, Y),records = df_gini_gdx |>
+    rename(src = source) |>
+    select(src, Ref, Y, value)
+)
+out_gdx <- file.path("gini_result.gdx")
+m$write(out_gdx)
 ##visualization--------------------------------------------------------
 df_lorenz_plot <- df_lorenz |> 
   mutate(Y_num = as.numeric(as.character(Y))) |> 
@@ -93,3 +117,25 @@ p_gini_trend <- ggplot(df_gini_plot, aes(x = Y_num, y = Gini, color = Ref, group
   labs(x = "Year", y = "Gini coefficient", color = "Scenario") + 
   Mytheme
 ggsave("../../output/Gini.png", plot = p_gini_trend, width = 12, height = 8, dpi = 300)
+
+df_lorenz_plot2 <- df_lorenz |>
+  mutate(Y_num = as.numeric(as.character(Y))) |>
+  filter(Y_num %in% c(2030, 2040, 2050))
+
+p_lorenz <- ggplot(
+  df_lorenz_plot2, aes(x = pop_share, y = income_share, color = Ref, linetype = factor(Y_num),group = interaction(Ref, Y_num))) +
+  geom_line(linewidth = 0.9) +
+  geom_abline(intercept = 0, slope = 1,linetype = "dashed", color = "grey40") +
+  facet_wrap(~ source, nrow = 1) +
+  coord_equal() +
+  labs(
+    x = "Cumulative population share",
+    y = "Cumulative income share",
+    color = "Scenario",
+    linetype = "Year"
+  ) +
+  Mytheme
+
+plot(p_lorenz)
+
+ggsave("../../output/Gini2.png", plot = p_lorenz, width = 12, height = 8, dpi = 300)
