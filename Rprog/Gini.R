@@ -8,6 +8,11 @@ scenario_refs <- c("SSP2_BaU_NoCC_No",
                   "SSP2_400C_2030CP_base_NoCC_No",
                   "SSP2_400C_2030CP_GDP_NoCC_No")
 #Budget
+Exp_n_split_seg <- rgdx.param(paste0("DecileResults_country_",n_split,".gdx"), "Budget", c("R", "Ref", "Y", "DEC", "Budget")) |> 
+    filter(Ref %in% scenario_refs)
+Exp_national_ave <- Exp_n_split_seg |> 
+    filter(DEC == "Ave") |> 
+    select(-DEC)
 Exp_default_seg <- rgdx.param("ConsumptionResults.gdx", "BudgetInitial", c("R", "DEC", "Budget")) |> 
   select(-R) |> 
   distinct()
