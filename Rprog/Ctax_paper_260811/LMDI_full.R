@@ -13,7 +13,7 @@ library(rnaturalearth)
 library(readxl)
 
 
-gdx_file <- "global_17_IAMC.gdx"; output_dir <- "decisive_figures_output"
+gdx_file <- "global_17_IAMC.gdx"; output_dir <- "../../output/Figure"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 CLP <- c("SSP2_400C_2030CP_NoCC_No","SSP2_400C_2030CP_15th_NoCC_No")
@@ -37,7 +37,7 @@ if(nrow(missing_data)>0){print(missing_data); stop("Some variables required for 
 df_lmdi <- df_lmdi_raw %>%
   pivot_wider(names_from=VEMF, values_from=Value) %>%
   mutate(Region=recode(REMF,"Rrecipient15th"="Recipient","Rprovider15th"="Provider"),
-         Region=factor(Region,levels=c("Recipient","Provider")),
+         Region=factor(Region,levels=c("Provider","Recipient")),
          Scenario=recode(SCENARIO,"SSP2_400C_2030CP_NoCC_No"="Def",
                          "SSP2_400C_2030CP_15th_NoCC_No"="Aid"),
          Scenario=factor(Scenario,levels=c("Def","Aid")),
@@ -118,7 +118,5 @@ g_lmdi <- ggplot(wf) +
 
 plot(g_lmdi)
 
-ggsave(file.path(output_dir,"glmdi_emissions_decomposition_2050.png"),
+ggsave(file.path(output_dir,"LMDI_2050.png"),
        g_lmdi,width=14,height=7,dpi=600)
-ggsave(file.path(output_dir,"glmdi_emissions_decomposition_2050.pdf"),
-       g_lmdi,width=14,height=7)

@@ -1,4 +1,4 @@
-# Option 2: two alternative visualizations of international carbon-tax revenue flows
+# carbon-tax revenue flows -------------------------------
 # Required files in the working directory:
 #   global_17_IAMC.gdx
 #   RegionmapRagg.map
@@ -11,10 +11,11 @@ library(sf)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(ggnewscale)
+library(svglite)
 
 gdx_file <- "global_17_IAMC.gdx"
 region_map_file <- "RegionmapRagg.map"
-output_dir <- "option2_output"
+output_dir <- "../../output/Figure"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 scenario_aid <- "SSP2_400C_2030CP_15th_NoCC_No"
@@ -204,7 +205,113 @@ figure2b <- ggplot() +
         plot.subtitle = element_text(color = "#555555"), plot.caption = element_text(color = "#666666", hjust = 0.5),
         plot.margin = margin(10, 15, 10, 15))
 
-ggsave(file.path(output_dir, "option2b_world_maps_flow.png"), figure2b, width = 18, height = 7.5, dpi = 600)
-ggsave(file.path(output_dir, "option2b_world_maps_flow.pdf"), figure2b, width = 18, height = 7.5)
+ggsave(file.path(output_dir, "C_revFlow.png"), figure2b, width = 18, height = 7.5, dpi = 600, bg="white")
+#ggsave(file.path(output_dir, "C_revFlow.pdf"), figure2b, width = 18, height = 7.5)
 
-message("Saved Option 2 variants to: ", normalizePath(output_dir))
+message("Saved graph to: ", normalizePath(output_dir))
+
+# Consumption-loss crossover ---------------------------------------
+
+scenario_def <- "SSP2_400C_2030CP_NoCC_No"
+loss_variable <- "Pol_Cos_Cns_Los_rat_NPV_5pc"
+loss_region_lookup <- tribble(
+  ~REMF, ~RegionType, ~X,
+  "Rprovider15th",  "Provider",  1,
+  "Rrecipient15th", "Recipient", 2
+)
+
+loss_data <- iamc %>%
+  filter(VEMF == loss_variable,
+         SCENARIO %in% c(scenario_def, scenario_aid),
+         REMF %in% loss_region_lookup$REMF,
+         as.numeric(as.character(YEMF)) == end_year) %>%
+  inner_join(loss_region_lookup, by = "REMF") %>%
+  mutate(Scenario = case_when(SCENARIO == scenario_def ~ "Def",
+                              SCENARIO == scenario_aid ~ "Aid")) %>%
+  group_by(RegionType, X, Scenario) %>%
+  summarise(Loss = mean(as.numeric(IAMC_Template), na.rm = TRUE), .groups = "drop") %>%
+  mutate(RegionType = factor(RegionType, levels = c("Provider","Recipient")),
+         Scenario = factor(Scenario, levels = c("Def","Aid")))
+
+expected_loss_data <- expand_grid(RegionType = c("Provider","Recipient"),
+                                  Scenario = c("Def","Aid"))
+missing_loss_data <- expected_loss_data %>%
+  anti_join(loss_data %>% mutate(RegionType = as.character(RegionType),
+                                 Scenario = as.character(Scenario)),
+            by = c("RegionType","Scenario"))
+if (nrow(missing_loss_data) > 0)
+  stop("Missing consumption-loss data for: ",
+       paste0(missing_loss_data$RegionType, " [", missing_loss_data$Scenario, "]",
+              collapse = ", "))
+if (any(!is.finite(loss_data$Loss))) stop("Non-finite consumption-loss values were found.")
+
+loss_range <- diff(range(loss_data$Loss))
+label_nudge <- if_else(loss_range > 0, loss_range * 0.07, 0.08)
+scenario_colors <- c(Def = "#666666", Aid = pool_gold)
+
+figure_loss <- ggplot(loss_data, aes(x = X, y = Loss, group = Scenario, color = Scenario)) +
+  annotate("rect", xmin = 0.5, xmax = 1.5, ymin = -Inf, ymax = Inf,
+           fill = provider_blue, alpha = 0.07) +
+  annotate("rect", xmin = 1.5, xmax = 2.5, ymin = -Inf, ymax = Inf,
+           fill = recipient_orange, alpha = 0.07) +
+  geom_line(linewidth = 1.6, lineend = "round") +
+  geom_point(size = 5) +
+  geom_text(aes(label = paste0(number(Loss, accuracy = 0.1), "%")),
+            nudge_y = label_nudge, size = 4.2, fontface = "bold",
+            show.legend = FALSE) +
+  scale_color_manual(values = scenario_colors, breaks = c("Def","Aid"),
+                     name = "Scenario") +
+  scale_x_continuous(breaks = c(1, 2),
+                     labels = c("PROVIDER REGIONS", "RECIPIENT REGIONS"),
+                     limits = c(0.72, 2.28), expand = expansion(mult = 0)) +
+  scale_y_continuous(labels = label_number(accuracy = 0.1, suffix = "%"),
+                     expand = expansion(mult = c(0.12, 0.20))) +
+  labs(
+       x = NULL, y = "Cumulative consumption loss in 2050 (%)") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
+        axis.text.x = element_text(face = "bold", size = 11, color = ink),
+        axis.title.y = element_text(face = "bold"),
+        plot.title = element_text(face = "bold", size = 15, hjust = 0.5),
+        plot.subtitle = element_text(color = "#555555", hjust = 0.5),
+        legend.position = "bottom", plot.margin = margin(10, 80, 10, 80))
+
+plot(figure_loss)
+ggsave(file.path(output_dir, "Cns_loss_crossover.png"),
+       figure_loss, width = 18, height = 6, dpi = 600, bg = "white")
+
+# Combine figures vertically ---------------------------------------
+
+figure_combined <- (
+  patchwork::wrap_plots(
+    figure2b, figure_loss,
+    ncol = 1,
+    heights = c(7, 6.5)
+  ) +
+    patchwork::plot_annotation(tag_levels = "a")
+) &
+  theme(
+    plot.tag = element_text(face = "bold", size = 18),
+    plot.tag.position = c(0.01, 0.99)
+  )
+
+plot(figure_combined)
+
+ggsave(
+  file.path(output_dir, "C_revFlow_and_CnsLoss.png"),
+  figure_combined,
+  width = 18, height = 13.5,
+  dpi = 600, bg = "white"
+)
+
+if(0){
+if (requireNamespace("svglite", quietly = TRUE)) {
+  ggsave(
+    file.path(output_dir, "C_revFlow_and_CnsLoss.svg"),
+    figure_combined,
+    device = svglite::svglite,
+    width = 18, height = 13.5,
+    bg = "white"
+  )
+}
+}
