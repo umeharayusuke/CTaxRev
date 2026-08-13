@@ -32,12 +32,6 @@ spec <- tribble(
 #  "Final",6,"Fin_Ene_Car_Man_Bio","Biomass CDR energy","EJ/yr",1,
 #  "Final",7,"Fin_Ene_Car_Man_Dir_Air_Cap","DACCS energy","EJ/yr",1,
 #  "Final",8,"Fin_Ene_Car_Man_Enh_Wea","Weathering energy","EJ/yr",1,
-  "Secondary",1,"Sec_Ene_Ele","Electricity","EJ/yr",1,
-  "Secondary",2,"Sec_Ene_Liq","Liquids","EJ/yr",1,
-  "Secondary",3,"Sec_Ene_Gas","Gas","EJ/yr",1,
-  "Secondary",4,"Sec_Ene_Heat","Heat","EJ/yr",1,
-#  "Secondary",5,"Sec_Ene_Hyd","Hydrogen","EJ/yr",1,
-#  "Secondary",6,"Sec_Ene_Solids","Solids","EJ/yr",1,
   "Power",1,"Sec_Ene_Ele_Coa","Coal","EJ/yr",1,
   "Power",2,"Sec_Ene_Ele_Gas","Gas","EJ/yr",1,
   "Power",3,"Sec_Ene_Ele_Oil","Oil","EJ/yr",1,
@@ -72,16 +66,16 @@ spec <- tribble(
 )
 
 key_components <- list(
-  Final = "Industry", Secondary = "Electricity",
+  Final = "Industry", 
   Power = "Solar", Primary = c("Oil","Solar","Bioenergy"),   CDR = c("BECCS", "Enhanced weathering"),
   Emissions = c("Energy supply","Capture and removal")
 )
 
 panel_titles <- c(
-  Final = "1  Final energy by sector",
-  Secondary = "2  Secondary energy by carrier", Power = "3  Power generation by source",
-  Primary = "4  Primary energy by source", CDR = "5  Carbon dioxide removal",
-  Emissions = "6  CO2 emissions by source"
+  Final = "a  Final energy by sector",
+  Power = "b  Power generation by source",
+  Primary = "c  Primary energy by source", CDR = "d  Carbon dioxide removal",
+  Emissions = "e  CO2 emissions by source"
 )
 
 raw <- rgdx.param(gdx_file, "IAMC_template") %>%
@@ -157,14 +151,24 @@ make_panel <- function(panel_id) {
 }
 
 p_final <- make_panel("Final")
-p_secondary <- make_panel("Secondary"); p_power <- make_panel("Power")
-p_primary <- make_panel("Primary"); p_cdr <- make_panel("CDR")
+p_power <- make_panel("Power")
+p_primary <- make_panel("Primary")
+p_cdr <- make_panel("CDR")
 p_emissions <- make_panel("Emissions")
 
+panel_layout <- c(
+  area(t = 1, l = 1, b = 1, r = 2),  # Final
+  area(t = 1, l = 3, b = 1, r = 4),  # Power
+  area(t = 1, l = 5, b = 1, r = 6),  # Primary
+  area(t = 2, l = 2, b = 2, r = 3),  # CDR
+  area(t = 2, l = 4, b = 2, r = 5)   # Emissions
+)
+
 figure_cascade <- wrap_plots(
-  p_final, p_secondary, p_power,
+  p_final, p_power,
   p_primary, p_cdr, p_emissions,
-  ncol = 3, guides = "collect"
+  design = panel_layout,
+  guides = "collect"
 ) +
   plot_annotation(
     theme = theme(plot.title = element_text(face = "bold", size = 15), plot.subtitle = element_text(size = 11),
