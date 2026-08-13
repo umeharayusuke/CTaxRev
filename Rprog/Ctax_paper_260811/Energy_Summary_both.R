@@ -120,7 +120,7 @@ signed_number <- function(x, accuracy) paste0(if_else(x > 0, "+", ""), number(x,
 
 make_panel <- function(panel_id) {
   d <- change_data %>% filter(Panel == panel_id) %>% arrange(Order)
-  unit <- unique(d$Unit); accuracy <- if (unit == "EJ/yr") 0.01 else 0.001
+  unit <- unique(d$Unit); accuracy <- if (unit == "EJ/yr") 0.1 else 0.1
   keys <- key_components[[panel_id]]
   total_text <- d %>% group_by(RegionType) %>% summarise(Total = sum(Change, na.rm = TRUE), .groups = "drop") %>%
     arrange(RegionType) %>% transmute(Text = paste0(RegionType, ": ", signed_number(Total, accuracy), " ", unit)) %>%
@@ -145,8 +145,8 @@ make_panel <- function(panel_id) {
     coord_cartesian(clip = "off") +
     theme_minimal(base_size = 10) +
     theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank(),
-          plot.title = element_text(face = "bold", size = 11), plot.subtitle = element_text(size = 9, color = "grey35"),
-          axis.title.x = element_text(size = 9), axis.text.x = element_text(size = 8), axis.text.y = element_text(size = 8.5),
+          plot.title = element_text(face = "bold", size = 11), plot.subtitle = element_text(size = 10, color = "black"),
+          axis.title.x = element_text(size = 9), axis.text.x = element_text(size = 8), axis.text.y = element_text(size = 10, color = "black"),
           legend.position = "bottom", plot.margin = margin(5, 18, 5, 5))
 }
 
@@ -172,7 +172,7 @@ figure_cascade <- wrap_plots(
 ) +
   plot_annotation(
     theme = theme(plot.title = element_text(face = "bold", size = 15), plot.subtitle = element_text(size = 11),
-                  plot.caption = element_text(size = 9, color = "grey35"))
+                  plot.caption = element_text(size = 10, color = "black"))
   ) &
   theme(legend.position = "bottom")
 
