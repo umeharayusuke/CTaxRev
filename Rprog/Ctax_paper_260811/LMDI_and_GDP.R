@@ -241,7 +241,8 @@ gdp_diff <- gdp_all %>%
 if(any(!is.finite(gdp_diff$bau_percent)))
   stop("Non-finite GDP decomposition values were generated. Check BaU GDP totals.")
 
-cols_gdp <- c("Consumption"="#4575B4","Investment"="#FDAE61","Net export"="#1A9850")
+cols_gdp <- c("Consumption"="#C44E9B","Investment"="#35B7C9","Net export"="#8C6D31")
+cols_gdp <- c("Consumption"="#E78AC3","Investment"="#66C2A5","Net export"="#A6761D")
 
 g_gdp <- ggplot() +
   geom_col(data=filter(gdp_diff,category!="Total"),
