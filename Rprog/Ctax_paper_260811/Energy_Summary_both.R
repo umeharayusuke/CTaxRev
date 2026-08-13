@@ -8,7 +8,7 @@ library(patchwork)
 library(scales)
 
 gdx_file <- "global_17_IAMC.gdx"
-output_dir <- "decisive_figures_output"
+output_dir <- "../../output/Figure"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 scenario_def <- "SSP2_400C_2030CP_NoCC_No"
@@ -27,73 +27,61 @@ spec <- tribble(
   "Final",1,"Fin_Ene_Ind","Industry","EJ/yr",1,
   "Final",2,"Fin_Ene_Res_and_Com","Buildings","EJ/yr",1,
   "Final",3,"Fin_Ene_Tra_w_bun","Transport","EJ/yr",1,
-  "Final",4,"Fin_Ene_Oth_Sec","Other sectors","EJ/yr",1,
-  "Final",5,"Fin_Ene_NonEneUse","Non-energy use","EJ/yr",1,
-  "Final",6,"Fin_Ene_Car_Man_Bio","Biomass CDR energy","EJ/yr",1,
-  "Final",7,"Fin_Ene_Car_Man_Dir_Air_Cap","DACCS energy","EJ/yr",1,
-  "Final",8,"Fin_Ene_Car_Man_Enh_Wea","Weathering energy","EJ/yr",1,
-  "Industry",1,"Fin_Ene_Ind_Ele","Electricity","EJ/yr",1,
-  "Industry",2,"Fin_Ene_Ind_Gas","Gas","EJ/yr",1,
-  "Industry",3,"Fin_Ene_Ind_Heat","Heat","EJ/yr",1,
-  "Industry",4,"Fin_Ene_Ind_Hyd","Hydrogen","EJ/yr",1,
-  "Industry",5,"Fin_Ene_Ind_Gas_Hyd_syn","Synthetic gas","EJ/yr",1,
-  "Industry",6,"Fin_Ene_Ind_Liq","Liquids","EJ/yr",1,
-  "Industry",7,"Fin_Ene_Ind_Oth","Other","EJ/yr",1,
-  "Industry",8,"Fin_Ene_Ind_Solids","Solids","EJ/yr",1,
+  "Final",4,"Fin_Ene_NonEneUse","Non-energy use","EJ/yr",1,
+#  "Final",5,"Fin_Ene_Oth_Sec","Other sectors","EJ/yr",1,
+#  "Final",6,"Fin_Ene_Car_Man_Bio","Biomass CDR energy","EJ/yr",1,
+#  "Final",7,"Fin_Ene_Car_Man_Dir_Air_Cap","DACCS energy","EJ/yr",1,
+#  "Final",8,"Fin_Ene_Car_Man_Enh_Wea","Weathering energy","EJ/yr",1,
   "Secondary",1,"Sec_Ene_Ele","Electricity","EJ/yr",1,
   "Secondary",2,"Sec_Ene_Liq","Liquids","EJ/yr",1,
   "Secondary",3,"Sec_Ene_Gas","Gas","EJ/yr",1,
   "Secondary",4,"Sec_Ene_Heat","Heat","EJ/yr",1,
-  "Secondary",5,"Sec_Ene_Hyd","Hydrogen","EJ/yr",1,
-  "Secondary",6,"Sec_Ene_Solids","Solids","EJ/yr",1,
+#  "Secondary",5,"Sec_Ene_Hyd","Hydrogen","EJ/yr",1,
+#  "Secondary",6,"Sec_Ene_Solids","Solids","EJ/yr",1,
   "Power",1,"Sec_Ene_Ele_Coa","Coal","EJ/yr",1,
   "Power",2,"Sec_Ene_Ele_Gas","Gas","EJ/yr",1,
   "Power",3,"Sec_Ene_Ele_Oil","Oil","EJ/yr",1,
-  "Power",4,"Sec_Ene_Ele_Geo","Geothermal","EJ/yr",1,
-  "Power",5,"Sec_Ene_Ele_Solar","Solar","EJ/yr",1,
-  "Power",6,"Sec_Ene_Ele_Win","Wind","EJ/yr",1,
-  "Power",7,"Sec_Ene_Ele_Hyp","Hydropower","EJ/yr",1,
-  "Power",8,"Sec_Ene_Ele_Oth","Other","EJ/yr",1,
-  "Power",9,"Sec_Ene_Ele_Bio","Bioenergy","EJ/yr",1,
-  "Power",10,"Sec_Ene_Ele_Nuc","Nuclear","EJ/yr",1,
+  "Power",4,"Sec_Ene_Ele_Solar","Solar","EJ/yr",1,
+  "Power",5,"Sec_Ene_Ele_Win","Wind","EJ/yr",1,
+  "Power",6,"Sec_Ene_Ele_Nuc","Nuclear","EJ/yr",1,
+  "Power",7,"Sec_Ene_Ele_Bio","Bioenergy","EJ/yr",1,
+#  "Power",8,"Sec_Ene_Ele_Geo","Geothermal","EJ/yr",1,
+#  "Power",9,"Sec_Ene_Ele_Hyp","Hydropower","EJ/yr",1,
+#  "Power",10,"Sec_Ene_Ele_Oth","Other","EJ/yr",1,
   "Primary",1,"Prm_Ene_Coa","Coal","EJ/yr",1,
   "Primary",2,"Prm_Ene_Gas","Gas","EJ/yr",1,
   "Primary",3,"Prm_Ene_Oil","Oil","EJ/yr",1,
-  "Primary",4,"Prm_Ene_Geo","Geothermal","EJ/yr",1,
-  "Primary",5,"Prm_Ene_Solar","Solar","EJ/yr",1,
-  "Primary",6,"Prm_Ene_Win","Wind","EJ/yr",1,
-  "Primary",7,"Prm_Ene_Hyp","Hydropower","EJ/yr",1,
-  "Primary",8,"Prm_Ene_Oth","Other","EJ/yr",1,
-  "Primary",9,"Prm_Ene_Bio","Bioenergy","EJ/yr",1,
-  "Primary",10,"Prm_Ene_Nuc","Nuclear","EJ/yr",1,
-  "Primary",11,"Prm_Ene_Sec_Ene_Trd","Secondary-energy trade","EJ/yr",1,
-  "CDR",1,"Car_Seq_Lan_Use","Land-use removal","GtCO2/yr",0.001,
+  "Primary",4,"Prm_Ene_Solar","Solar","EJ/yr",1,
+  "Primary",5,"Prm_Ene_Win","Wind","EJ/yr",1,
+  "Primary",6,"Prm_Ene_Nuc","Nuclear","EJ/yr",1,
+  "Primary",7,"Prm_Ene_Bio","Bioenergy","EJ/yr",1,
+#  "Primary",8,"Prm_Ene_Geo","Geothermal","EJ/yr",1,
+#  "Primary",9,"Prm_Ene_Hyp","Hydropower","EJ/yr",1,
+#  "Primary",10,"Prm_Ene_Oth","Other","EJ/yr",1,
+#  "Primary",11,"Prm_Ene_Sec_Ene_Trd","Secondary-energy trade","EJ/yr",1,
+  "CDR",1,"Car_Seq_Lan_Use","Land use","GtCO2/yr",0.001,
   "CDR",2,"Car_Seq_CCS_Bio","BECCS","GtCO2/yr",0.001,
   "CDR",3,"Car_Seq_Dir_Air_Cap","DACCS","GtCO2/yr",0.001,
   "CDR",4,"Car_Seq_Enh_Wea","Enhanced weathering","GtCO2/yr",0.001,
-  "CCS",1,"Car_Seq_CCS_Fos","Fossil CCS","GtCO2/yr",0.001,
-  "CCS",2,"Car_Seq_CCS_Ind_Pro","Industrial CCS","GtCO2/yr",0.001,
-  "CCS",3,"Car_Seq_CCS_Bio","BECCS","GtCO2/yr",0.001,
-  "CCS",4,"Car_Seq_Dir_Air_Cap","DACCS","GtCO2/yr",0.001,
   "Emissions",1,"Emi_CO2_AFO","AFOLU","GtCO2/yr",0.001,
   "Emissions",2,"Emi_CO2_Ene_Sup","Energy supply","GtCO2/yr",0.001,
   "Emissions",3,"Emi_CO2_Ene_Dem","Energy demand","GtCO2/yr",0.001,
-  "Emissions",4,"Emi_CO2_Ind_Pro","Industrial processes","GtCO2/yr",0.001,
-  "Emissions",5,"Emi_CO2_Pro_Use","Product use","GtCO2/yr",0.001,
-  "Emissions",6,"Emi_CO2_Cap_and_Rem","Capture and removal","GtCO2/yr",0.001
+  "Emissions",4,"Emi_CO2_Cap_and_Rem","Capture and removal","GtCO2/yr",0.001
+#  "Emissions",5,"Emi_CO2_Ind_Pro","Industrial processes","GtCO2/yr",0.001,
+#  "Emissions",6,"Emi_CO2_Pro_Use","Product use","GtCO2/yr",0.001
 )
 
 key_components <- list(
-  Final = "Industry", Industry = "Electricity", Secondary = "Electricity",
-  Power = "Solar", Primary = c("Solar","Bioenergy"), CDR = "BECCS",
-  CCS = "BECCS", Emissions = c("Energy supply","Capture and removal")
+  Final = "Industry", Secondary = "Electricity",
+  Power = "Solar", Primary = c("Oil","Solar","Bioenergy"),   CDR = c("BECCS", "Enhanced weathering"),
+  Emissions = c("Energy supply","Capture and removal")
 )
 
 panel_titles <- c(
-  Final = "1  Final energy by sector", Industry = "2  Industrial energy by carrier",
-  Secondary = "3  Secondary energy by carrier", Power = "4  Power generation by source",
-  Primary = "5  Primary energy by source", CDR = "6  Carbon dioxide removal",
-  CCS = "7  Carbon capture and storage", Emissions = "8  CO2 emissions by source"
+  Final = "1  Final energy by sector",
+  Secondary = "2  Secondary energy by carrier", Power = "3  Power generation by source",
+  Primary = "4  Primary energy by source", CDR = "5  Carbon dioxide removal",
+  Emissions = "6  CO2 emissions by source"
 )
 
 raw <- rgdx.param(gdx_file, "IAMC_template") %>%
@@ -152,10 +140,10 @@ make_panel <- function(panel_id) {
   ggplot(d, aes(Change, Component, group = RegionType)) +
     geom_vline(xintercept = 0, color = "grey35", linewidth = 0.45) +
     geom_col(aes(fill = RegionType, alpha = KeyAlpha), position = dodge, width = 0.62,
-             show.legend = panel_id == "Industry") +
+             show.legend = panel_id == "Final") +
     geom_text(aes(label = Label, hjust = LabelHjust, fontface = LabelFace), position = dodge,
               size = 2.6, show.legend = FALSE) +
-    scale_fill_manual(name = "Region aggregate", values = region_colors, breaks = c("Provider","Recipient")) +
+    scale_fill_manual(name = NULL, values = region_colors, breaks = c("Provider","Recipient")) +
     scale_alpha_identity() +
     scale_x_continuous(labels = label_number(accuracy = accuracy), expand = expansion(mult = c(0.28, 0.28))) +
     labs(title = panel_titles[[panel_id]], subtitle = total_text,
@@ -168,15 +156,15 @@ make_panel <- function(panel_id) {
           legend.position = "bottom", plot.margin = margin(5, 18, 5, 5))
 }
 
-p_final <- make_panel("Final"); p_industry <- make_panel("Industry")
+p_final <- make_panel("Final")
 p_secondary <- make_panel("Secondary"); p_power <- make_panel("Power")
 p_primary <- make_panel("Primary"); p_cdr <- make_panel("CDR")
-p_ccs <- make_panel("CCS"); p_emissions <- make_panel("Emissions")
+p_emissions <- make_panel("Emissions")
 
 figure_cascade <- wrap_plots(
-  p_final, p_industry, p_secondary, p_power,
-  p_primary, p_cdr, p_ccs, p_emissions,
-  ncol = 4, guides = "collect"
+  p_final, p_secondary, p_power,
+  p_primary, p_cdr, p_emissions,
+  ncol = 3, guides = "collect"
 ) +
   plot_annotation(
     theme = theme(plot.title = element_text(face = "bold", size = 15), plot.subtitle = element_text(size = 11),
@@ -185,5 +173,5 @@ figure_cascade <- wrap_plots(
   theme(legend.position = "bottom")
 
 plot(figure_cascade)
-ggsave(file.path(output_dir, "provider_recipient_energy_emissions_causal_cascade.png"), figure_cascade, width = 18, height = 12, dpi = 600)
-ggsave(file.path(output_dir, "provider_recipient_energy_emissions_causal_cascade.pdf"), figure_cascade, width = 18, height = 12)
+ggsave(file.path(output_dir, "F4_Energy_summary.png"), figure_cascade, width = 18, height = 12, dpi = 600)
+#ggsave(file.path(output_dir, "provider_recipient_energy_emissions_causal_cascade.pdf"), figure_cascade, width = 18, height = 12)
