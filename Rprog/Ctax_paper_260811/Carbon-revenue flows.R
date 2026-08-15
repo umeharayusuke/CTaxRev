@@ -192,15 +192,15 @@ figure2b <- ggplot() +
   geom_text(data = provider_centers, aes(x, y, label = REMF), nudge_y = map_width*0.012, size = 2.7, color = ink, inherit.aes = FALSE) +
   geom_text(data = recipient_centers, aes(x, y, label = REMF), nudge_y = map_width*0.012, size = 2.7, color = ink, inherit.aes = FALSE) +
   annotate("point", x = fund_x, y = fund_y, shape = 21, size = 70, fill = pool_gold, color = "white", stroke = 1.2) +
-  annotate("text", x = fund_x, y = fund_y + map_width*0.010, label = "CARBON-REVENUE\nPOOL", fontface = "bold", size = 8, color = ink) +
+  annotate("text", x = fund_x, y = fund_y + map_width*0.010, label = "Carbon tax revenue\nin developed regions", fontface = "bold", size = 8, color = ink) +
   annotate("text", x = fund_x, y = fund_y - map_width*0.08,
-           label = paste0(number(pool_total, accuracy = 0.01), " trillion US$2010"), size = 6, color = ink) +
-  annotate("text", x = 0, y = as.numeric(bbox["ymax"])*0.92, label = "PROVIDER REGIONS", fontface = "bold", color = provider_blue, size = 4) +
-  annotate("text", x = shift_x, y = as.numeric(bbox["ymax"])*0.92, label = "RECIPIENT REGIONS", fontface = "bold", color = recipient_orange, size = 4) +
+           label = paste0("61 trillion US$2010"), size = 6, color = ink) +
+  annotate("text", x = 0, y = as.numeric(bbox["ymax"])*0.92, label = "Provider regions", fontface = "bold", color = provider_blue, size = 4) +
+  annotate("text", x = shift_x, y = as.numeric(bbox["ymax"])*0.92, label = "Recipient regions", fontface = "bold", color = recipient_orange, size = 4) +
   coord_sf(xlim = c(as.numeric(bbox["xmin"]), as.numeric(bbox["xmax"])+shift_x),
            ylim = c(as.numeric(bbox["ymin"]), as.numeric(bbox["ymax"])), expand = FALSE, datum = NA) +
-  labs(title = "Carbon Tax Revenue Transfer Cumulative Flows") +
-  theme_void(base_size = 12) +
+  #labs(title = "Carbon Tax Revenue Transfer Cumulative Flows") +
+  theme_void(base_size = 16) +
   theme(legend.position = "bottom", legend.box = "horizontal", plot.title = element_text(face = "bold", size = 15,hjust = 0.5),
         plot.subtitle = element_text(color = "#555555"), plot.caption = element_text(color = "#666666", hjust = 0.5),
         plot.margin = margin(10, 15, 10, 15))
@@ -262,18 +262,16 @@ figure_loss <- ggplot(loss_data, aes(x = X, y = Loss, group = Scenario, color = 
   scale_color_manual(values = scenario_colors, breaks = c("Def","Aid"),
                      name = "Scenario") +
   scale_x_continuous(breaks = c(1, 2),
-                     labels = c("PROVIDER REGIONS", "RECIPIENT REGIONS"),
+                     labels = c("Provider regions", "Recipient regions"),
                      limits = c(0.72, 2.28), expand = expansion(mult = 0)) +
   scale_y_continuous(labels = label_number(accuracy = 0.1, suffix = "%"),
                      expand = expansion(mult = c(0.12, 0.20))) +
   labs(
        x = NULL, y = "Cumulative consumption loss in 2050 (%)") +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 16) +
   theme(panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
-        axis.text.x = element_text(face = "bold", size = 11, color = ink),
-        axis.title.y = element_text(face = "bold"),
-        plot.title = element_text(face = "bold", size = 15, hjust = 0.5),
-        plot.subtitle = element_text(color = "#555555", hjust = 0.5),
+        axis.text.x = element_text(face = "plain", size = 16, color = ink),
+        axis.title.y = element_text(face = "plain"),
         legend.position = "bottom", plot.margin = margin(10, 80, 10, 80))
 
 plot(figure_loss)
@@ -304,7 +302,7 @@ ggsave(
   dpi = 600, bg = "white"
 )
 
-if(0){
+if(1){
 if (requireNamespace("svglite", quietly = TRUE)) {
   ggsave(
     file.path(output_dir, "C_revFlow_and_CnsLoss.svg"),

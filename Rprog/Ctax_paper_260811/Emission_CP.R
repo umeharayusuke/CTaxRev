@@ -53,16 +53,16 @@ aim_price <- iamc %>%
   filter(VEMF == "Prc_Car", SCENARIO %in% names(scenario_names), REMF == "World", Year >= 2020, Year <= 2050) %>%
   transmute(Year, Scenario, value = Value)
 
-scenario_scale <- function() scale_color_manual(name = "AIM scenario", values = scenario_colors,
+scenario_scale <- function() scale_color_manual(name = "scenario", values = scenario_colors,
                                                  limits = c("BaU", "Def", "Aid"), drop = FALSE)
 ar6_scale <- function() scale_fill_manual(name = "AR6 category", values = ar6_colors,
                                           limits = c("C1", "C2"), drop = FALSE)
 x_scale <- function() scale_x_continuous(limits = c(2018.5, 2051.5), breaks = year_breaks, labels = year_breaks)
-theme_panel <- function() theme_bw(base_size = 12) +
+theme_panel <- function() theme_bw(base_size = 16) +
   theme(panel.grid.minor = element_blank(), panel.grid.major = element_line(color = "#E4E4E4", linewidth = 0.3),
-        axis.text.x = element_text(angle = 0, hjust = 0.5), axis.title = element_text(face = "bold"),
-        plot.title = element_text(face = "bold", size = 13), legend.position = "right",
-        legend.box = "vertical", legend.box.just = "left", legend.title = element_text(face = "bold"))
+        axis.text.x = element_text(angle = 0, hjust = 0.5), axis.title = element_text(face = "plain"),
+        plot.title = element_text(face = "plain", size = 16), legend.position = "right",
+        legend.box = "vertical", legend.box.just = "left", legend.title = element_text(face = "plain"))
 
 make_ar6_panel <- function(variable, aim_data, title, y_label) {
   ggplot() + geom_hline(yintercept = 0, linewidth = 0.3, color = "grey50") +
@@ -119,7 +119,7 @@ figure_2x2 <- ((p_global | p_price_combined) / (p_provider_combined | p_recipien
   plot_layout(guides = "collect") + plot_annotation(tag_levels = "a")
 figure_2x2 <- figure_2x2 &
   theme(legend.position = "right", legend.box = "vertical", legend.box.just = "left",
-        plot.tag = element_text(face = "bold", size = 16))
+        plot.tag = element_text(face = "plain", size = 16))
 
 plot(figure_2x2)
 save_figure(figure_2x2, "Emission_CP", 16, 10)

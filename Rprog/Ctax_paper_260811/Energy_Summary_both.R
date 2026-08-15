@@ -136,17 +136,17 @@ make_panel <- function(panel_id) {
     geom_col(aes(fill = RegionType, alpha = KeyAlpha), position = dodge, width = 0.62,
              show.legend = panel_id == "Final") +
     geom_text(aes(label = Label, hjust = LabelHjust, fontface = LabelFace), position = dodge,
-              size = 2.6, show.legend = FALSE) +
+              size = 4, show.legend = FALSE) +
     scale_fill_manual(name = NULL, values = region_colors, breaks = c("Provider","Recipient")) +
     scale_alpha_identity() +
     scale_x_continuous(labels = label_number(accuracy = accuracy), expand = expansion(mult = c(0.28, 0.28))) +
     labs(title = panel_titles[[panel_id]], subtitle = total_text,
          x = paste0("Change (", unit, ")"), y = NULL) +
     coord_cartesian(clip = "off") +
-    theme_minimal(base_size = 10) +
+    theme_minimal(base_size = 16) +
     theme(panel.grid.minor = element_blank(), panel.grid.major.y = element_blank(),
-          plot.title = element_text(face = "bold", size = 11), plot.subtitle = element_text(size = 10, color = "black"),
-          axis.title.x = element_text(size = 9), axis.text.x = element_text(size = 8), axis.text.y = element_text(size = 10, color = "black"),
+          plot.title = element_text(face = "bold", size = 16), plot.subtitle = element_text(size = 16, color = "black"),
+          axis.title.x = element_text(size = 16), axis.text.x = element_text(size = 16), axis.text.y = element_text(size = 16, color = "black"),
           legend.position = "bottom", plot.margin = margin(5, 18, 5, 5))
 }
 
@@ -171,11 +171,22 @@ figure_cascade <- wrap_plots(
   guides = "collect"
 ) +
   plot_annotation(
-    theme = theme(plot.title = element_text(face = "bold", size = 15), plot.subtitle = element_text(size = 11),
-                  plot.caption = element_text(size = 10, color = "black"))
+    theme = theme(plot.title = element_text(face = "bold", size = 16), plot.subtitle = element_text(size = 14),
+                  plot.caption = element_text(size = 12, color = "black"))
   ) &
   theme(legend.position = "bottom")
 
 plot(figure_cascade)
 ggsave(file.path(output_dir, "F4_Energy_summary.png"), figure_cascade, width = 18, height = 12, dpi = 600)
 #ggsave(file.path(output_dir, "provider_recipient_energy_emissions_causal_cascade.pdf"), figure_cascade, width = 18, height = 12)
+if(1){
+if (requireNamespace("svglite", quietly = TRUE)) {
+  ggsave(
+    file.path(output_dir, "F4_Energy_summary.svg"),
+    figure_cascade,
+    device = svglite::svglite,
+    width = 18, height = 12,
+    bg = "white"
+  )
+}
+}

@@ -22,17 +22,17 @@ region_group_map <- tibble(
   Region=c(rep("Provider",10),rep("Recipient",7))
 )
 
-theme_common <- theme_minimal(base_size=13) +
+theme_common <- theme_minimal(base_size=16) +
   theme(panel.grid.minor=element_blank(), panel.grid.major.x=element_blank(),
         panel.grid.major.y=element_line(color="grey85",linewidth=0.3),
-        axis.text=element_text(size=11,color="black"),
-        axis.text.x=element_text(size=11,color="black",face="bold"),
-        axis.title=element_text(size=12,color="black"),
-        strip.text=element_text(size=13,color="black",face="bold"),
-        legend.position="right", legend.title=element_text(size=12,face="bold"),
-        legend.text=element_text(size=11),
-        plot.title=element_text(size=14,face="bold",color="black"),
-        plot.tag=element_text(size=16,face="bold",color="black"),
+        axis.text=element_text(size=16,color="black"),
+        axis.text.x=element_text(size=16,color="black",face="plain"),
+        axis.title=element_text(size=16,color="black"),
+        strip.text=element_text(size=16,color="black",face="plain"),
+        legend.position="right", legend.title=element_text(size=16,face="plain"),
+        legend.text=element_text(size=16),
+        plot.title=element_text(size=16,face="plain",color="black"),
+        plot.tag=element_text(size=16,face="plain",color="black"),
         plot.margin=margin(8,8,8,8))
 
 # (a) GLMDI decomposition --------------------------------------------------
@@ -136,7 +136,7 @@ g_lmdi <- ggplot(wf) +
                inherit.aes=FALSE,color="grey55",linewidth=0.5) +
   geom_rect(aes(xmin=x-0.4,xmax=x+0.4,ymin=ymin,ymax=ymax,fill=Step)) +
   geom_text(aes(x=x,y=label_y,label=change_label,vjust=label_vjust),
-            size=4,fontface="bold") +
+            size=4,fontface="plain") +
   scale_x_continuous(breaks=c(1,7),labels=c("Def","Aid"),
                      limits=c(0.5,7.5),expand=expansion(mult=c(0,0))) +
   scale_y_continuous(labels=label_number(accuracy=1,big.mark=",")) +
@@ -149,7 +149,7 @@ g_lmdi <- ggplot(wf) +
   ) +
   facet_wrap(~Region,nrow=1,scales="free_y") +
   labs(title="Decomposition of net CO₂ emission changes: Aid − Def",
-       x=NULL,y="Net CO₂ emissions and contributions (MtCO₂/yr in 2050)") +
+       x=NULL,y="Net CO₂ emissions and contributions \n(MtCO₂/yr in 2050)") +
   coord_cartesian(clip="off") + theme_common +
   theme(axis.ticks.x=element_blank())
 
@@ -274,9 +274,21 @@ g_combined <- (g_lmdi/g_gdp) +
 
 g_combined <- g_combined &
   theme(legend.position="right",
-        plot.tag=element_text(size=16,face="bold",color="black"))
+        plot.tag=element_text(size=16,face="plain",color="black"))
 
 plot(g_combined)
 
 ggsave(file.path(output_dir,"F5_LMDI_GDP_2050.png"),
        g_combined,width=14,height=13,dpi=600,bg="white")
+
+if(1){
+if (requireNamespace("svglite", quietly = TRUE)) {
+  ggsave(
+    file.path(output_dir, "F5_LMDI_GDP_2050.svg"),
+    g_combined,
+    device = svglite::svglite,
+    width = 14, height = 12,
+    bg = "white"
+  )
+}
+}

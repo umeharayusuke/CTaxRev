@@ -5,7 +5,7 @@ library(gdxrrw)
 library(scales)
 
 gdx_file <- "global_17_IAMC.gdx"
-output_dir <- "decisive_figures_output"
+output_dir <- "../../output/Figure"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 scenario_def <- "SSP2_400C_2030CP_NoCC_No"
@@ -20,15 +20,15 @@ all_regions <- c(providers, recipients)
 provider_color <- "#356C9B"
 recipient_color <- "#D27755"
 
-theme_paper <- theme_minimal(base_size = 12) +
+theme_paper <- theme_minimal(base_size = 16) +
   theme(
     panel.grid.minor = element_blank(),
     panel.grid.major = element_line(color = "#E5E5E5", linewidth = 0.3),
-    plot.title = element_text(face = "bold", size = 14),
-    plot.subtitle = element_text(color = "#555555"),
-    axis.title = element_text(face = "bold"),
+    #plot.title = element_text(face = "bold", size = 14),
+    #plot.subtitle = element_text(color = "#555555"),
+    axis.title = element_text(face = "plain"),
     legend.position = "bottom",
-    legend.title = element_text(face = "bold"),
+    #legend.title = element_text(face = "bold"),
     plot.caption = element_text(color = "#666666", hjust = 0)
   )
 
@@ -196,7 +196,7 @@ figure4 <- ggplot(
   ) +
   labs(
     x = "Net cumulative transfer / cumulative GDP (%)\n← provides revenue                         receives revenue →",
-    y = "Recovery in cumulative consumption loss (%) \n← worse                         better →"
+    y = "Recovery in cumulative consumption loss from Def to Aid(%) \n← worse                         better →"
   ) +
   theme_paper
 
@@ -224,10 +224,17 @@ if (requireNamespace("ggrepel", quietly = TRUE)) {
 plot(figure4)
 
 ggsave(
-  file.path(output_dir, "option4_transfer_recovery_scatter.png"),
+  file.path(output_dir, "transfer_recovery_scatter.png"),
   figure4, width = 11, height = 8, dpi = 600
 )
-ggsave(
-  file.path(output_dir, "option4_transfer_recovery_scatter.pdf"),
-  figure4, width = 11, height = 8
-)
+if(1){
+if (requireNamespace("svglite", quietly = TRUE)) {
+  ggsave(
+    file.path(output_dir, "transfer_recovery_scatter.svg"),
+    figure4,
+    device = svglite::svglite,
+    width = 11, height = 8,
+    bg = "white"
+  )
+}
+}
