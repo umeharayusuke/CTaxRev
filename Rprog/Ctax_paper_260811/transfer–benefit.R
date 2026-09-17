@@ -10,6 +10,7 @@ dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 scenario_def <- "SSP2_400C_2030CP_NoCC_No"
 scenario_aid <- "SSP2_400C_2030CP_15th_NoCC_No"
+scenario_bau <- "SSP2_BaU_NoCC_No"
 start_year <- 2030
 end_year <- 2050
 
@@ -104,16 +105,17 @@ transfer_cumulative <- bind_rows(
     mutate(Type = "Recipient")
 )
 
-# Cumulative GDP_MER
+# Cumulative GDP_MER for the original Aid denominator and the new BaU denominator
 gdp_cumulative <- iamc %>%
   filter(
     VEMF == "GDP_MER",
-    SCENARIO == scenario_aid,
+    SCENARIO %in% c(scenario_aid, scenario_bau),
     REMF %in% all_regions,
     Year >= start_year,
     Year <= end_year
   ) %>%
-  group_by(REMF) %>%
+  mutate(GDPBasis = if_else(SCENARIO == scenario_aid, "Aid", "BaU")) %>%
+  group_by(GDPBasis, REMF) %>%
   summarise(
     CumGDP = trapz_sum(Year, IAMC_Template),
     .groups = "drop"
@@ -154,7 +156,7 @@ loss <- iamc %>%
   mutate(Recovery = Def - Aid)
 
 scatter_data <- transfer_summary %>%
-  select(REMF, Type, NetTransferPct, CumTrillion) %>%
+  select(GDPBasis, REMF, Type, NetTransferPct, CumTrillion) %>%
   left_join(loss %>% select(REMF, Def, Aid, Recovery), by = "REMF") %>%
   mutate(Type = factor(Type, levels = c("Provider", "Recipient"))) %>%
   filter(
@@ -163,10 +165,11 @@ scatter_data <- transfer_summary %>%
     is.finite(CumTrillion)
   )
 
-figure4 <- ggplot(
-  scatter_data,
-  aes(NetTransferPct, Recovery, color = Type, size = CumTrillion)
-) +
+make_scatter <- function(gdp_basis) {
+  figure <- ggplot(
+    filter(scatter_data, GDPBasis == gdp_basis),
+    aes(NetTransferPct, Recovery, color = Type, size = CumTrillion)
+  ) +
   annotate(
     "rect",
     xmin = -Inf, xmax = Inf,
@@ -195,46 +198,40 @@ figure4 <- ggplot(
     labels = label_number(accuracy = 0.1, suffix = "%")
   ) +
   labs(
-    x = "Net cumulative transfer / cumulative GDP (%)\n← provides revenue                         receives revenue →",
-    y = "Recovery in cumulative consumption loss from Def to Aid(%) \n← worse                         better →"
+    x = paste0("Net cumulative transfer / cumulative ", gdp_basis,
+               " GDP (%)\nProviders (negative)                         Recipients (positive)"),
+    y = "Recovery in cumulative consumption loss: Def - Aid (%)\nNegative = worse; positive = better"
   ) +
   theme_paper
 
-if (requireNamespace("ggrepel", quietly = TRUE)) {
-  figure4 <- figure4 +
-    ggrepel::geom_text_repel(
-      aes(label = REMF),
-      size = 3.2,
-      show.legend = FALSE,
-      box.padding = 0.35,
-      point.padding = 0.25,
-      max.overlaps = Inf
-    )
-} else {
-  figure4 <- figure4 +
-    geom_text(
-      aes(label = REMF),
-      size = 3,
-      nudge_y = 0.03,
-      check_overlap = TRUE,
-      show.legend = FALSE
-    )
+  if (requireNamespace("ggrepel", quietly = TRUE)) {
+    figure <- figure +
+      ggrepel::geom_text_repel(
+        aes(label = REMF), size = 3.2, show.legend = FALSE,
+        box.padding = 0.35, point.padding = 0.25, max.overlaps = Inf
+      )
+  } else {
+    figure <- figure +
+      geom_text(aes(label = REMF), size = 3, nudge_y = 0.03,
+                check_overlap = TRUE, show.legend = FALSE)
+  }
+  figure
 }
 
-plot(figure4)
+save_scatter <- function(figure, stem) {
+  ggsave(file.path(output_dir, paste0(stem, ".png")), figure,
+         width = 11, height = 8, dpi = 600, bg = "white")
+  if (requireNamespace("svglite", quietly = TRUE)) {
+    ggsave(file.path(output_dir, paste0(stem, ".svg")), figure,
+           device = svglite::svglite, width = 11, height = 8, bg = "white")
+  }
+}
 
-ggsave(
-  file.path(output_dir, "transfer_recovery_scatter.png"),
-  figure4, width = 11, height = 8, dpi = 600
-)
-if(1){
-if (requireNamespace("svglite", quietly = TRUE)) {
-  ggsave(
-    file.path(output_dir, "transfer_recovery_scatter.svg"),
-    figure4,
-    device = svglite::svglite,
-    width = 11, height = 8,
-    bg = "white"
-  )
-}
-}
+figure_aid_gdp <- make_scatter("Aid")
+figure_bau_gdp <- make_scatter("BaU")
+plot(figure_aid_gdp)
+plot(figure_bau_gdp)
+
+# Keep the original filename for the Aid-GDP version; give the BaU version its own name.
+save_scatter(figure_aid_gdp, "transfer_recovery_scatter")
+save_scatter(figure_bau_gdp, "transfer_recovery_scatter_BaUGDP")
