@@ -40,8 +40,8 @@ scenario_colors <- c(BaU = "#252525", Def = "#D6604D", Aid = "#2166AC")
 plot_years <- seq(2020, 2050, 10)
 bar_years <- c(2030, 2040, 2050)
 map_year <- 2050
-thresholds <- c("pop_2.15", "pop_3.65", "pop_6.85")
-threshold_labels <- c("$2.15 / person / day", "$3.65 / person / day", "$6.85 / person / day")
+thresholds <- c("pop_3.00", "pop_4.20", "pop_8.30")
+threshold_labels <- c("$3.00 / person / day", "$4.20 / person / day", "$8.30 / person / day")
 # Thresholds retain the source definitions. No new PPP conversion is applied.
 
 check_grid <- function(data, expected, keys, context) {
@@ -147,7 +147,7 @@ theme_paper <- theme_bw(base_size = 12) +
 # Blue dashed line and open circle remain distinguishable when Aid overlaps Def.
 p_a <- ggplot(poverty, aes(Year, Million, color = Scenario, linetype = Scenario, shape = Scenario)) +
   geom_line(linewidth = 0.9) + geom_point(size = 2.8, stroke = 0.85) +
-  facet_wrap(~Threshold, nrow = 1, scales = "free_y") +
+  facet_wrap(~Threshold, nrow = 1, scales = "fixed") +
   scale_color_manual(values = scenario_colors, drop = FALSE) +
   scale_linetype_manual(values = c(BaU = "solid", Def = "solid", Aid = "22")) +
   scale_shape_manual(values = c(BaU = 16, Def = 17, Aid = 1)) +
@@ -162,7 +162,7 @@ p_b <- ggplot(additional, aes(Year_plot, Additional_million, fill = Scenario)) +
   geom_col(position = position_dodge(width = 0.76), width = 0.68) +
   geom_text(aes(label = sprintf("%.1f", Additional_million)),
              position = position_dodge(width = 0.76), vjust = -0.4, size = 3.2) +
-  facet_wrap(~Threshold, nrow = 1, scales = "free_y") +
+  facet_wrap(~Threshold, nrow = 1, scales = "fixed") +
   scale_fill_manual(values = scenario_colors, guide = "none") +
   scale_y_continuous(labels = label_number(big.mark = ","),
                      expand = expansion(mult = c(0.02, 0.14))) +
