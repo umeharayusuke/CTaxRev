@@ -57,11 +57,26 @@ evaluate_script_prefix <- function(
     script_name,
     stop_pattern,
     occurrence = 1L,
-    working_dir = project_root) {
-  script_path <- file.path(
-    project_root, "Rprog", "Ctax_paper_260811", script_name
-  )
-  if (!file.exists(script_path)) stop("Missing source script: ", script_path)
+    working_dir = project_root,
+    script_registry = NULL) {
+  if (!is.null(script_registry) && script_name %in% names(script_registry)) {
+    source_dir <- tempfile("ctax_bundled_sources_")
+    dir.create(source_dir, recursive = TRUE, showWarnings = FALSE)
+    invisible(mapply(
+      function(source, name) {
+        writeLines(source, file.path(source_dir, name), useBytes = TRUE)
+      },
+      script_registry,
+      names(script_registry),
+      SIMPLIFY = FALSE,
+      USE.NAMES = FALSE
+    ))
+    script_path <- file.path(source_dir, script_name)
+  } else {
+    source_dir <- file.path(project_root, "Rprog", "All")
+    script_path <- file.path(source_dir, script_name)
+  }
+  if (!file.exists(script_path)) stop("Missing bundled source script: ", script_name)
 
   lines <- readLines(script_path, warn = FALSE, encoding = "UTF-8")
   boundaries <- grep(stop_pattern, lines)
@@ -77,6 +92,7 @@ evaluate_script_prefix <- function(
   env <- new.env(parent = globalenv())
   env$ggsave <- function(...) invisible(NULL)
   env$unlink <- function(...) invisible(0L)
+  env$ctax_source_dir <- source_dir
 
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
@@ -142,14 +158,16 @@ build_figure <- function(
     width_mm,
     height_mm,
     occurrence = 1L,
-    working_dir = project_root) {
+    working_dir = project_root,
+    script_registry = NULL) {
   message("Building ", filename_stem, " ...")
   env <- evaluate_script_prefix(
     project_root = project_root,
     script_name = script_name,
     stop_pattern = stop_pattern,
     occurrence = occurrence,
-    working_dir = working_dir
+    working_dir = working_dir,
+    script_registry = script_registry
   )
   plot <- get_plot_object(env, plot_object, script_name)
   save_figure_pair(
