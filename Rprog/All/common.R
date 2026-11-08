@@ -15,9 +15,88 @@ required_packages <- c(
   "gdxrrw"
 )
 
+theme_ncc <- function(
+    base_size = 8,
+    base_family = "Arial",
+    legend_position = "bottom",
+    margin_mm = c(top = 2, right = 3, bottom = 2, left = 2),
+    panel_spacing_mm = 3) {
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("theme_ncc() requires the ggplot2 package.")
+  }
+  if (length(margin_mm) != 4L) {
+    stop("margin_mm must contain top, right, bottom, and left values.")
+  }
+
+  ggplot2::theme_classic(base_size = base_size, base_family = base_family) +
+    ggplot2::theme(
+      text = ggplot2::element_text(
+        family = base_family, face = "plain", colour = "black"
+      ),
+      axis.title = ggplot2::element_text(
+        size = base_size, face = "plain", colour = "black"
+      ),
+      axis.text = ggplot2::element_text(
+        size = base_size * 0.875, face = "plain", colour = "black"
+      ),
+      axis.line = ggplot2::element_line(linewidth = 0.35, colour = "black"),
+      axis.ticks = ggplot2::element_line(linewidth = 0.35, colour = "black"),
+      axis.ticks.length = grid::unit(1.5, "mm"),
+      panel.background = ggplot2::element_rect(fill = "white", colour = NA),
+      plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+      panel.grid = ggplot2::element_blank(),
+      panel.spacing = grid::unit(panel_spacing_mm, "mm"),
+      strip.background = ggplot2::element_blank(),
+      strip.text = ggplot2::element_text(
+        size = base_size, face = "bold", colour = "black"
+      ),
+      legend.position = legend_position,
+      legend.background = ggplot2::element_blank(),
+      legend.box.background = ggplot2::element_blank(),
+      legend.key = ggplot2::element_blank(),
+      legend.title = ggplot2::element_blank(),
+      legend.text = ggplot2::element_text(
+        size = base_size * 0.8125, face = "plain", colour = "black"
+      ),
+      legend.key.height = grid::unit(3.2, "mm"),
+      legend.key.width = grid::unit(5.2, "mm"),
+      legend.spacing.x = grid::unit(1.2, "mm"),
+      plot.title = ggplot2::element_text(
+        size = base_size * 1.15, face = "bold", colour = "black"
+      ),
+      plot.subtitle = ggplot2::element_text(
+        size = base_size, face = "plain", colour = "black"
+      ),
+      plot.caption = ggplot2::element_text(
+        size = base_size * 0.75, face = "plain", colour = "black"
+      ),
+      plot.tag = ggplot2::element_text(
+        size = base_size * 1.125, face = "bold", colour = "black"
+      ),
+      plot.tag.position = c(0, 1),
+      plot.margin = ggplot2::margin(
+        margin_mm[[1]], margin_mm[[2]], margin_mm[[3]], margin_mm[[4]],
+        unit = "mm"
+      )
+    )
+}
+
+apply_ncc_theme <- function(plot, ...) {
+  ncc_theme <- theme_ncc(...)
+  if (inherits(plot, "patchwork")) {
+    plot & ncc_theme
+  } else {
+    plot + ncc_theme
+  }
+}
+
 check_required_packages <- function() {
   missing_packages <- required_packages[
-    !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)
+    !vapply(
+      required_packages,
+      function(package) length(find.package(package, quiet = TRUE)) > 0L,
+      logical(1)
+    )
   ]
   if (length(missing_packages)) {
     stop(
@@ -50,65 +129,6 @@ figure_output_dirs <- function(project_root) {
   )
   invisible(lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE))
   dirs
-}
-
-evaluate_script_prefix <- function(
-    project_root,
-    script_name,
-    stop_pattern,
-    occurrence = 1L,
-    working_dir = project_root,
-    script_registry = NULL) {
-  if (!is.null(script_registry) && script_name %in% names(script_registry)) {
-    source_dir <- tempfile("ctax_bundled_sources_")
-    dir.create(source_dir, recursive = TRUE, showWarnings = FALSE)
-    invisible(mapply(
-      function(source, name) {
-        writeLines(source, file.path(source_dir, name), useBytes = TRUE)
-      },
-      script_registry,
-      names(script_registry),
-      SIMPLIFY = FALSE,
-      USE.NAMES = FALSE
-    ))
-    script_path <- file.path(source_dir, script_name)
-  } else {
-    source_dir <- file.path(project_root, "Rprog", "All")
-    script_path <- file.path(source_dir, script_name)
-  }
-  if (!file.exists(script_path)) stop("Missing bundled source script: ", script_name)
-
-  lines <- readLines(script_path, warn = FALSE, encoding = "UTF-8")
-  boundaries <- grep(stop_pattern, lines)
-  if (length(boundaries) < occurrence) {
-    stop(
-      "Could not find boundary ", stop_pattern, " (occurrence ", occurrence,
-      ") in ", script_path
-    )
-  }
-  boundary <- boundaries[[occurrence]]
-  if (boundary <= 1L) stop("Invalid source boundary in: ", script_path)
-
-  env <- new.env(parent = globalenv())
-  env$ggsave <- function(...) invisible(NULL)
-  env$unlink <- function(...) invisible(0L)
-  env$ctax_source_dir <- source_dir
-
-  old_dir <- getwd()
-  on.exit(setwd(old_dir), add = TRUE)
-  setwd(working_dir)
-  eval(
-    parse(text = paste(lines[seq_len(boundary - 1L)], collapse = "\n")),
-    envir = env
-  )
-  env
-}
-
-get_plot_object <- function(env, object_name, script_name) {
-  if (!exists(object_name, envir = env, inherits = FALSE)) {
-    stop("Plot object '", object_name, "' was not created by ", script_name)
-  }
-  get(object_name, envir = env, inherits = FALSE)
 }
 
 save_figure_pair <- function(
@@ -146,35 +166,4 @@ save_figure_pair <- function(
   message("Created: ", png_file)
   message("Created: ", svg_file)
   invisible(c(png = png_file, svg = svg_file))
-}
-
-build_figure <- function(
-    project_root,
-    output_dirs,
-    script_name,
-    stop_pattern,
-    plot_object,
-    filename_stem,
-    width_mm,
-    height_mm,
-    occurrence = 1L,
-    working_dir = project_root,
-    script_registry = NULL) {
-  message("Building ", filename_stem, " ...")
-  env <- evaluate_script_prefix(
-    project_root = project_root,
-    script_name = script_name,
-    stop_pattern = stop_pattern,
-    occurrence = occurrence,
-    working_dir = working_dir,
-    script_registry = script_registry
-  )
-  plot <- get_plot_object(env, plot_object, script_name)
-  save_figure_pair(
-    plot = plot,
-    filename_stem = filename_stem,
-    width_mm = width_mm,
-    height_mm = if (is.function(height_mm)) height_mm(env) else height_mm,
-    output_dirs = output_dirs
-  )
 }
