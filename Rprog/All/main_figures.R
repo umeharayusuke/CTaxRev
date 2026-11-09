@@ -42,10 +42,8 @@ build_emission_panels <- function(project_root) {
   gdx_file <- file.path(data_dir, "global_17_IAMC.gdx")
   ar6_meta_file <- file.path(data_dir, "AR6_Scenarios_Database_metadata_indicators_v1.1.xlsx")
   ar6_world_file <- file.path(data_dir, "AR6_Scenarios_Database_World_v1.1.csv")
-  output_dir <- file.path(project_dir, "output", "Figure")
-  csv_dir <- file.path(output_dir, "csv")
-  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-  dir.create(csv_dir, showWarnings = FALSE, recursive = TRUE)
+  output_dir <- tempdir()
+  csv_dir <- tempdir()
   gams_candidates <- unique(c(Sys.getenv("GAMS_SYSDIR", unset = ""), "C:/GAMS/34", "C:/GAMS/win64/26.1"))
   gams_candidates <- gams_candidates[nzchar(gams_candidates)]
   gams_dir <- gams_candidates[dir.exists(gams_candidates)][1]
@@ -208,11 +206,11 @@ build_revenue_panels <- function(project_root) {
   library(ggnewscale)
   library(svglite)
   gdx_file <- "global_17_IAMC.gdx"
+  annual_gdx_file <- "SSP2_400C_2030CP_15th_NoCC_No.gdx"
   region_map_file <- "RegionmapRagg.map"
-  output_dir <- "../../output/Figure"
-  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+  output_dir <- tempdir()
   scenario_aid <- "SSP2_400C_2030CP_15th_NoCC_No"
-  start_year <- 2030
+  start_year <- 2026
   end_year <- 2050
   providers <- c("XE25", "JPN", "TUR", "CHN", "USA", "XER", "XOC", "CAN", "XLM", "CIS")
   recipients <- c("XSA", "IND", "XNF", "XAF", "XSE", "BRA", "XME")
@@ -225,28 +223,19 @@ build_revenue_panels <- function(project_root) {
   recipient_orange <- "#D27755"
   pool_gold <- "#E6B85C"
   ink <- "#252525"
-  trapz_sum <- function(year, value) {
-      ok <- is.finite(year) & is.finite(value)
-      year <- year[ok]
-      value <- value[ok]
-      if (length(year) < 2)
-          return(NA)
-      o <- order(year)
-      year <- year[o]
-      value <- value[o]
-      sum(diff(year) * (head(value, -1) + tail(value, -1))/2)
-  }
   if (!file.exists(gdx_file)) stop("Place global_17_IAMC.gdx in the working directory.")
+  if (!file.exists(annual_gdx_file)) stop("Place SSP2_400C_2030CP_15th_NoCC_No.gdx in the working directory.")
   if (!file.exists(region_map_file)) stop("Place RegionmapRagg.map in the working directory.")
   iamc <- rgdx.param(gdx_file, "IAMC_template") %>% mutate(Year = as.numeric(as.character(YEMF)))
-  provider_raw <- iamc %>% filter(VEMF == "Rev_gov_Tax_Car_Tax", SCENARIO == scenario_aid, REMF %in% providers, Year >= start_year,
-      Year <= end_year) %>% transmute(Year, REMF, Transfer = as.numeric(IAMC_Template))
+  annual_iamc <- rgdx.param(annual_gdx_file, "IAMC_template") %>% mutate(Year = as.numeric(as.character(Y)), Value = as.numeric(IAMC_template))
+  provider_raw <- annual_iamc %>% filter(VEMF == "Rev_gov_Tax_Car_Tax", REMF %in% providers,
+      Year >= start_year, Year <= end_year) %>% transmute(Year, REMF, Transfer = Value)
   model_years <- sort(unique(provider_raw$Year))
   provider_annual <- provider_raw %>% group_by(Year, REMF) %>% summarise(Transfer = sum(Transfer, na.rm = TRUE), .groups = "drop") %>%
       complete(Year = model_years, REMF = providers, fill = list(Transfer = 0))
   total_annual <- provider_annual %>% group_by(Year) %>% summarise(TotalTransfer = sum(Transfer, na.rm = TRUE), .groups = "drop")
-  recipient_gdp <- iamc %>% filter(VEMF == "GDP_PPP", SCENARIO == scenario_aid, REMF %in% recipients, Year >= start_year, Year <=
-      end_year) %>% transmute(Year, REMF, GDP_PPP = as.numeric(IAMC_Template)) %>% group_by(Year, REMF) %>% summarise(GDP_PPP = sum(GDP_PPP,
+  recipient_gdp <- annual_iamc %>% filter(VEMF == "GDP_PPP", REMF %in% recipients, Year >= start_year, Year <=
+      end_year) %>% transmute(Year, REMF, GDP_PPP = Value) %>% group_by(Year, REMF) %>% summarise(GDP_PPP = sum(GDP_PPP,
       na.rm = TRUE), .groups = "drop") %>% complete(Year = model_years, REMF = recipients, fill = list(GDP_PPP = 0)) %>% group_by(Year) %>%
       mutate(TotalGDP_PPP = sum(GDP_PPP, na.rm = TRUE)) %>% ungroup()
   if (any(recipient_gdp$TotalGDP_PPP <= 0)) {
@@ -254,9 +243,9 @@ build_revenue_panels <- function(project_root) {
   }
   recipient_annual <- recipient_gdp %>% mutate(GDPShare = GDP_PPP/TotalGDP_PPP) %>% left_join(total_annual, by = "Year") %>%
       transmute(Year, REMF, Transfer = TotalTransfer * GDPShare)
-  provider_cum <- provider_annual %>% group_by(REMF) %>% summarise(CumTransfer = trapz_sum(Year, Transfer), .groups = "drop") %>%
+  provider_cum <- provider_annual %>% group_by(REMF) %>% summarise(CumTransfer = sum(Transfer), .groups = "drop") %>%
       mutate(CumTrillion = CumTransfer/1e+06, Type = "Provider")
-  recipient_cum <- recipient_annual %>% group_by(REMF) %>% summarise(CumTransfer = trapz_sum(Year, Transfer), .groups = "drop") %>%
+  recipient_cum <- recipient_annual %>% group_by(REMF) %>% summarise(CumTransfer = sum(Transfer), .groups = "drop") %>%
       mutate(CumTrillion = CumTransfer/1e+06, Type = "Recipient")
   pool_total <- sum(provider_cum$CumTrillion, na.rm = TRUE)
   recipient_total <- sum(recipient_cum$CumTrillion, na.rm = TRUE)
@@ -317,7 +306,7 @@ build_revenue_panels <- function(project_root) {
       aes(x, y, label = REMF), nudge_y = map_width * 0.012, size = 2.7, color = ink, inherit.aes = FALSE) + annotate("point",
       x = fund_x, y = fund_y, shape = 21, size = 70, fill = pool_gold, color = "white", stroke = 1.2) + annotate("text", x = fund_x,
       y = fund_y + map_width * 0.01, label = "Carbon tax revenue\nin developed regions", fontface = "bold", size = 8, color = ink) +
-      annotate("text", x = fund_x, y = fund_y - map_width * 0.08, label = "61 trillion US$2010", size = 6, color = ink) + annotate("text",
+      annotate("text", x = fund_x, y = fund_y - map_width * 0.08, label = sprintf("%.1f trillion US$2010", pool_total), size = 6, color = ink) + annotate("text",
       x = 0, y = as.numeric(bbox["ymax"]) * 0.92, label = "Provider regions", fontface = "bold", color = provider_blue, size = 4) +
       annotate("text", x = shift_x, y = as.numeric(bbox["ymax"]) * 0.92, label = "Recipient regions", fontface = "bold", color = recipient_orange,
           size = 4) + coord_sf(xlim = c(as.numeric(bbox["xmin"]), as.numeric(bbox["xmax"]) + shift_x), ylim = c(as.numeric(bbox["ymin"]),
@@ -399,32 +388,6 @@ build_main_figure_2 <- function(project_root) {
   p_c$layers[[13L]]$aes_params$size <- 2.65
   p_c$layers[[14L]]$aes_params$size <- 2.35
   p_c$layers[[15L]]$aes_params$size <- 2.35
-  cumulative_pool_rows <- dplyr::pull(dplyr::filter(revenue_env$iamc, VEMF == "Cum_Rev_gov_Tax_Car_Tax", SCENARIO == revenue_env$scenario_aid,
-      REMF == "Rprovider15th", Year == revenue_env$end_year), IAMC_Template)
-  if (length(cumulative_pool_rows) != 1L || !is.finite(cumulative_pool_rows[[1L]]) || cumulative_pool_rows[[1L]] <= 0) {
-      stop("Missing the 2050 Rprovider15th cumulative carbon-tax revenue.")
-  }
-  cumulative_pool_trillion <- cumulative_pool_rows[[1L]]/1e+06
-  pool_total_label <- paste0(ceiling(cumulative_pool_trillion), " trillion US$2010")
-  pool_label_replaced <- FALSE
-  for (layer_index in seq_along(p_c$layers)) {
-      layer_data <- p_c$layers[[layer_index]]$data
-      if (is.data.frame(layer_data) && "label" %in% names(layer_data)) {
-          replace_rows <- as.character(layer_data$label) == "61 trillion US$2010"
-          if (any(replace_rows, na.rm = TRUE)) {
-              p_c$layers[[layer_index]]$data$label[replace_rows] <- pool_total_label
-              pool_label_replaced <- TRUE
-          }
-      }
-      fixed_label <- p_c$layers[[layer_index]]$aes_params$label
-      if (!is.null(fixed_label) && any(as.character(fixed_label) == "61 trillion US$2010")) {
-          p_c$layers[[layer_index]]$aes_params$label <- pool_total_label
-          pool_label_replaced <- TRUE
-      }
-  }
-  if (!pool_label_replaced) {
-      stop("Could not locate the fixed cumulative-pool label in panel c.")
-  }
   apply_label_offsets <- function(data, offsets, map_width) {
       matched <- match(as.character(data$REMF), offsets$REMF)
       move <- !is.na(matched)
@@ -459,1049 +422,387 @@ build_main_figure_2 <- function(project_root) {
   figure_composite
 }
 
-prepare_transfer_benefit <- function(project_root) {
-  old_dir <- getwd()
-  on.exit(setwd(old_dir), add = TRUE)
-  setwd(project_root)
 
-  project_library_candidates <- c(file.path(getwd(), "Rlib"), file.path(getwd(), "..", "Rlib"), file.path(getwd(), "..", "..",
-      "Rlib"), "C:/ENVI5809/R_library", "C:/Users/umeha/AppData/Local/R/win-library/4.5")
-  project_library_candidates <- project_library_candidates[dir.exists(project_library_candidates)]
-  if (length(project_library_candidates) > 0) {
-      .libPaths(unique(c(project_library_candidates, .libPaths())))
-  }
-  suppressPackageStartupMessages({
-      library(dplyr)
-      library(tidyr)
-      library(ggplot2)
-      library(gdxrrw)
-      library(scales)
-  })
-  find_project_dir <- function(start_dir) {
-      candidate <- normalizePath(start_dir, winslash = "/", mustWork = TRUE)
-      repeat {
-          if (file.exists(file.path(candidate, "CTaxRev.Rproj")))
-              return(candidate)
-          parent <- dirname(candidate)
-          if (identical(parent, candidate)) {
-              stop("Could not find the CTaxRev project root.")
-          }
-          candidate <- parent
-      }
-  }
-  command_args <- commandArgs(trailingOnly = FALSE)
-  file_arg <- grep("^--file=", command_args, value = TRUE)
-  start_dir <- if (length(file_arg) > 0) {
-      dirname(normalizePath(sub("^--file=", "", file_arg[[1]]), winslash = "/", mustWork = TRUE))
-  } else {
-      getwd()
-  }
-  project_dir <- find_project_dir(start_dir)
-  gdx_file <- file.path(project_dir, "data", "All", "global_17_IAMC.gdx")
-  output_dir <- file.path(project_dir, "output", "Figure")
-  csv_dir <- file.path(output_dir, "csv")
-  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-  dir.create(csv_dir, showWarnings = FALSE, recursive = TRUE)
-  if (!file.exists(gdx_file)) {
-      stop("GDX input was not found: ", gdx_file)
-  }
-  gams_candidates <- unique(c(Sys.getenv("GAMS_SYSDIR", unset = ""), "C:/GAMS/34", "C:/GAMS/win64/26.1"))
-  gams_candidates <- gams_candidates[nzchar(gams_candidates)]
-  gams_dir <- gams_candidates[dir.exists(gams_candidates)][1]
-  if (is.na(gams_dir)) {
-      stop("GAMS system directory was not found; gdxrrw cannot read the GDX.")
-  }
-  igdx(gams_dir)
-  scenario_def <- "SSP2_400C_2030CP_NoCC_No"
-  scenario_aid <- "SSP2_400C_2030CP_15th_NoCC_No"
-  scenario_bau <- "SSP2_BaU_NoCC_No"
-  start_year <- 2030
-  end_year <- 2050
-  providers <- c("XE25", "JPN", "TUR", "CHN", "USA", "XER", "XOC", "CAN", "XLM", "CIS")
-  recipients <- c("XSA", "IND", "XNF", "XAF", "XSE", "BRA", "XME")
-  all_regions <- c(providers, recipients)
-  provider_color <- "#356C9B"
-  recipient_color <- "#D27755"
-  theme_paper <- theme_minimal(base_size = 16) + theme(panel.grid.minor = element_blank(), panel.grid.major = element_line(color = "#E5E5E5",
-      linewidth = 0.3), axis.title = element_text(face = "plain"), legend.position = "bottom", plot.caption = element_text(color = "#666666",
-      hjust = 0))
-  trapz_sum <- function(year, value) {
-      ok <- is.finite(year) & is.finite(value)
-      year <- year[ok]
-      value <- value[ok]
-      if (length(year) < 2)
-          return(NA)
-      o <- order(year)
-      year <- year[o]
-      value <- value[o]
-      sum(diff(year) * (head(value, -1) + tail(value, -1))/2)
-  }
-  iamc <- rgdx.param(gdx_file, "IAMC_template") %>% mutate(Year = as.numeric(as.character(YEMF)), IAMC_Template = as.numeric(IAMC_Template))
-  provider_annual <- iamc %>% filter(VEMF == "Rev_gov_Tax_Car_Tax", SCENARIO == scenario_aid, REMF %in% providers, Year >=
-      start_year, Year <= end_year) %>% transmute(Year, REMF, Transfer = IAMC_Template) %>% group_by(Year, REMF) %>% summarise(Transfer = sum(Transfer,
-      na.rm = TRUE), .groups = "drop") %>% complete(Year = seq(start_year, end_year, 5), REMF = providers, fill = list(Transfer = 0))
-  total_annual <- provider_annual %>% group_by(Year) %>% summarise(TotalTransfer = sum(Transfer, na.rm = TRUE), .groups = "drop")
-  recipient_annual <- iamc %>% filter(VEMF == "GDP_PPP", SCENARIO == scenario_aid, REMF %in% recipients, Year >= start_year,
-      Year <= end_year) %>% group_by(Year) %>% mutate(GDPShare = IAMC_Template/sum(IAMC_Template, na.rm = TRUE)) %>% ungroup() %>%
-      left_join(total_annual, by = "Year") %>% transmute(Year, REMF, Transfer = TotalTransfer * GDPShare)
-  transfer_cumulative <- bind_rows(provider_annual %>% group_by(REMF) %>% summarise(CumTransfer = trapz_sum(Year, Transfer),
-      .groups = "drop") %>% mutate(Type = "Provider"), recipient_annual %>% group_by(REMF) %>% summarise(CumTransfer = trapz_sum(Year,
-      Transfer), .groups = "drop") %>% mutate(Type = "Recipient"))
-  gdp_cumulative <- iamc %>% filter(VEMF == "GDP_MER", SCENARIO %in% c(scenario_aid, scenario_bau), REMF %in% all_regions,
-      Year >= start_year, Year <= end_year) %>% mutate(GDPBasis = if_else(SCENARIO == scenario_aid, "Aid", "BaU")) %>% group_by(GDPBasis,
-      REMF) %>% summarise(CumGDP = trapz_sum(Year, IAMC_Template), .groups = "drop")
-  transfer_summary <- transfer_cumulative %>% left_join(gdp_cumulative, by = "REMF") %>% mutate(CumTrillion = CumTransfer/1e+06,
-      NetTransferPct = if_else(Type == "Provider", -100 * CumTransfer/(CumGDP * 1000), 100 * CumTransfer/(CumGDP * 1000)))
-  loss <- iamc %>% filter(VEMF == "Pol_Cos_Cns_Los_rat_NPV_5pc", SCENARIO %in% c(scenario_def, scenario_aid), REMF %in% all_regions,
-      Year == end_year) %>% mutate(Scenario = case_when(SCENARIO == scenario_def ~ "Def", SCENARIO == scenario_aid ~ "Aid")) %>%
-      group_by(REMF, Scenario) %>% summarise(Value = mean(IAMC_Template, na.rm = TRUE), .groups = "drop") %>% pivot_wider(names_from = Scenario,
-      values_from = Value) %>% filter(is.finite(Def), is.finite(Aid)) %>% mutate(Recovery = Def - Aid)
-  scatter_data <- transfer_summary %>% select(GDPBasis, REMF, Type, NetTransferPct, CumTrillion) %>% left_join(loss %>% select(REMF,
-      Def, Aid, Recovery), by = "REMF") %>% mutate(Type = factor(Type, levels = c("Provider", "Recipient"))) %>% filter(is.finite(NetTransferPct),
-      is.finite(Recovery), is.finite(CumTrillion))
-  plot_years <- seq(start_year, end_year, 5)
-  annual_transfer <- bind_rows(provider_annual %>% filter(Year %in% plot_years) %>% mutate(Type = "Provider"), recipient_annual %>%
-      filter(Year %in% plot_years) %>% mutate(Type = "Recipient"))
-  gdp_annual <- iamc %>% filter(VEMF == "GDP_MER", SCENARIO %in% c(scenario_aid, scenario_bau), REMF %in% all_regions, Year %in%
-      plot_years) %>% transmute(Year, REMF, GDPBasis = if_else(SCENARIO == scenario_aid, "Aid", "BaU"), GDP = IAMC_Template)
-  annual_consumption <- iamc %>% filter(VEMF == "CNS", SCENARIO %in% c(scenario_def, scenario_aid), REMF %in% all_regions,
-      Year %in% plot_years) %>% mutate(Scenario = case_when(SCENARIO == scenario_def ~ "Def", SCENARIO == scenario_aid ~ "Aid")) %>%
-      group_by(Year, REMF, Scenario) %>% summarise(Value = mean(IAMC_Template, na.rm = TRUE), .groups = "drop") %>% pivot_wider(names_from = Scenario,
-      values_from = Value) %>% filter(is.finite(Def), is.finite(Aid), Def > 0) %>% transmute(Year, REMF, CNS_Def = Def, CNS_Aid = Aid,
-      ConsumptionChangePct = 100 * (CNS_Aid - CNS_Def)/CNS_Def)
-  annual_scatter_data <- annual_transfer %>% left_join(gdp_annual, by = c("Year", "REMF")) %>% mutate(Type = factor(Type, levels = c("Provider",
-      "Recipient")), AnnualTrillion = Transfer/1e+06, NetTransferPct = if_else(Type == "Provider", -100 * Transfer/(GDP * 1000),
-      100 * Transfer/(GDP * 1000))) %>% left_join(annual_consumption, by = c("Year", "REMF")) %>% filter(is.finite(NetTransferPct),
-      is.finite(ConsumptionChangePct), is.finite(AnnualTrillion))
-  write.csv(annual_scatter_data %>% arrange(GDPBasis, Year, Type, REMF) %>% select(GDPBasis, Year, REMF, Type, Transfer, GDP,
-      NetTransferPct, AnnualTrillion, CNS_Def, CNS_Aid, ConsumptionChangePct), file.path(csv_dir, "transfer_recovery_scatter_5year_source_data.csv"),
-      row.names = FALSE)
-  invisible(NULL)
-}
-
-prepare_zero_loss <- function(project_root) {
-  old_dir <- getwd()
-  on.exit(setwd(old_dir), add = TRUE)
-  setwd(project_root)
-
-  find_project_root <- function(start) {
-      current <- normalizePath(start, winslash = "/", mustWork = TRUE)
-      repeat {
-          marker <- file.path(current, "data", "All", "global_17_IAMC.gdx")
-          if (file.exists(marker))
-              return(current)
-          parent <- dirname(current)
-          if (identical(parent, current))
-              break
-          current <- parent
-      }
-      NA
-  }
-  script_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
-  script_dir <- if (length(script_arg)) {
-      dirname(normalizePath(sub("^--file=", "", script_arg[[1]]), winslash = "/"))
-  } else {
-      getwd()
-  }
-  project_root <- find_project_root(getwd())
-  if (is.na(project_root)) project_root <- find_project_root(script_dir)
-  if (is.na(project_root)) {
-      stop("Could not locate data/All/global_17_IAMC.gdx.")
-  }
-  local_library <- file.path(project_root, "Rlib")
-  if (dir.exists(local_library)) .libPaths(c(local_library, .libPaths()))
-  shared_libraries <- c(Sys.getenv("R_LIBS_USER"), "C:/ENVI5809/R_library")
-  shared_libraries <- shared_libraries[nzchar(shared_libraries) & dir.exists(shared_libraries)]
-  .libPaths(unique(c(shared_libraries, .libPaths())))
-  suppressPackageStartupMessages({
-      library(dplyr)
-      library(ggplot2)
-      library(scales)
-  })
-  scenario_def <- "SSP2_400C_2030CP_NoCC_No"
-  scenario_aid <- "SSP2_400C_2030CP_15th_NoCC_No"
-  provider_region <- "Rprovider15th"
-  recipient_region <- "Rrecipient15th"
-  sensitivity_region_membership <- bind_rows(tibble::tibble(Threshold = "10th", Region = c("IND", "XSA", "XNF", "XAF"), Group = "Recipient"),
-      tibble::tibble(Threshold = "10th", Region = c("XE25", "XER", "TUR", "XOC", "CHN", "JPN", "XSE", "CAN", "USA", "BRA",
-          "XLM", "CIS", "XME"), Group = "Provider"), tibble::tibble(Threshold = "15th", Region = c("IND", "BRA", "XSA", "XSE",
-          "XME", "XNF", "XAF"), Group = "Recipient"), tibble::tibble(Threshold = "15th", Region = c("XE25", "XER", "TUR", "XOC",
-          "CHN", "JPN", "CAN", "USA", "XLM", "CIS"), Group = "Provider"), tibble::tibble(Threshold = "20th", Region = c("CHN",
-          "IND", "BRA", "XSA", "XSE", "XME", "XLM", "XNF", "XAF", "CIS"), Group = "Recipient"), tibble::tibble(Threshold = "20th",
-          Region = c("XE25", "XER", "TUR", "XOC", "JPN", "CAN", "USA"), Group = "Provider"))
-  membership_check <- sensitivity_region_membership %>% count(Threshold, Region) %>% filter(n != 1L)
-  if (nrow(membership_check) || any((sensitivity_region_membership %>% count(Threshold))$n != 17L)) {
-      stop("Each GDP threshold must classify all 17 AIM regions exactly once.")
-  }
-  sensitivity_cases <- expand.grid(SSP = paste0("SSP", 1:3), Threshold = c("10th", "15th", "20th"), stringsAsFactors = FALSE) %>%
-      mutate(DefScenario = paste0(SSP, "_400C_2030CP_NoCC_No"), AidScenario = paste0(SSP, "_400C_2030CP_", Threshold, "_NoCC_No")) %>%
-      filter(!(SSP == "SSP3" & Threshold %in% c("10th", "15th")))
-  start_year <- 2030
-  end_year <- 2050
-  model_years <- seq(start_year, end_year, by = 5)
-  period_years <- end_year - start_year
-  loss_rate_variable <- "Pol_Cos_Cns_Los_rat_NPV_5pc"
-  loss_amount_variable <- "Pol_Cos_Cns_Los"
-  revenue_variable <- "Rev_gov_Tax_Car_Tax"
-  cumulative_revenue_variable <- "Cum_Rev_gov_Tax_Car_Tax"
-  variables_needed <- c(loss_rate_variable, loss_amount_variable, revenue_variable, cumulative_revenue_variable)
-  scenarios_needed <- unique(c(scenario_def, scenario_aid, sensitivity_cases$DefScenario, sensitivity_cases$AidScenario))
-  gdx_file <- file.path(project_root, "data", "All", "global_17_IAMC.gdx")
-  output_dir <- file.path(project_root, "output", "Figure")
-  csv_dir <- file.path(output_dir, "csv")
-  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  dir.create(csv_dir, recursive = TRUE, showWarnings = FALSE)
-  find_gdxdump <- function() {
-      from_path <- unname(Sys.which(c("gdxdump", "gdxdump.exe")))
-      from_path <- from_path[nzchar(from_path)]
-      candidates <- unique(c(from_path, "C:/GAMS/34/gdxdump.exe", "C:/GAMS/win64/26.1/gdxdump.exe"))
-      hit <- candidates[file.exists(candidates)]
-      if (!length(hit))
-          return(NA)
-      normalizePath(hit[[1]], winslash = "/")
-  }
-  read_iamc_subset <- function(path, scenarios, variables) {
-      gdxdump <- find_gdxdump()
-      if (is.na(gdxdump))
-          stop("Could not locate gdxdump.exe.")
-      dump_file <- tempfile("IAMC_template_", fileext = ".csv")
-      on.exit(unlink(dump_file), add = TRUE)
-      result <- system2(gdxdump, args = c(shQuote(normalizePath(path, winslash = "/")), "symb=IAMC_template", "format=csv",
-          paste0("output=", shQuote(dump_file))), stdout = TRUE, stderr = TRUE)
-      status <- attr(result, "status")
-      if (is.null(status))
-          status <- 0L
-      if (status != 0L || !file.exists(dump_file)) {
-          stop("gdxdump failed: ", paste(result, collapse = "\n"))
-      }
-      con <- file(dump_file, open = "r", encoding = "UTF-8")
-      on.exit(close(con), add = TRUE)
-      invisible(readLines(con, n = 1L, warn = FALSE))
-      pieces <- list()
-      piece_id <- 0L
-      repeat {
-          lines <- readLines(con, n = 200000L, warn = FALSE)
-          if (!length(lines))
-              break
-          scenario_hit <- rep(FALSE, length(lines))
-          for (scenario in scenarios) {
-              scenario_hit <- scenario_hit | startsWith(lines, paste0("\"", scenario, "\","))
-          }
-          variable_hit <- rep(FALSE, length(lines))
-          for (variable in variables) {
-              variable_hit <- variable_hit | grepl(paste0(",\"", variable, "\","), lines, fixed = TRUE)
-          }
-          selected <- lines[scenario_hit & variable_hit]
-          if (length(selected)) {
-              piece_id <- piece_id + 1L
-              pieces[[piece_id]] <- read.csv(text = paste(selected, collapse = "\n"), header = FALSE, col.names = c("SCENARIO",
-                  "REMF", "VEMF", "Year", "Value"), stringsAsFactors = FALSE)
-          }
-      }
-      if (!length(pieces))
-          stop("No required IAMC_template records were found.")
-      bind_rows(pieces) %>% mutate(Year = as.numeric(Year), Value = as.numeric(Value))
-  }
-  message("Reading selected IAMC_template records from: ", gdx_file)
-  iamc <- read_iamc_subset(gdx_file, scenarios_needed, variables_needed) %>% filter(SCENARIO %in% scenarios_needed, VEMF %in%
-      variables_needed, is.finite(Year), is.finite(Value))
-  one_value <- function(variable, scenario, region, year) {
-      values <- iamc$Value[iamc$VEMF == variable & iamc$SCENARIO == scenario & iamc$REMF == region & iamc$Year == year]
-      if (length(values) != 1L || !is.finite(values)) {
-          stop("Expected one finite value for ", variable, ", ", scenario, ", ", region, ", ", year, "; found ", length(values),
-              ".")
-      }
-      values
-  }
-  five_year_series <- function(variable, scenario, region) {
-      rows <- iamc %>% filter(VEMF == variable, SCENARIO == scenario, REMF == region, Year %in% model_years) %>% select(Year,
-          Value) %>% arrange(Year)
-      if (nrow(rows) != length(model_years) || anyDuplicated(rows$Year) || !identical(rows$Year, as.numeric(model_years)) ||
-          any(!is.finite(rows$Value))) {
-          stop("Expected one finite ", variable, " observation for every model year ", start_year, "-", end_year, " in ", scenario,
-              ", ", region, ".")
-      }
-      rows
-  }
-  trapezoid_integral <- function(year, annual_flow) {
-      if (length(year) < 2L || length(year) != length(annual_flow)) {
-          stop("A valid annual-flow series is required for integration.")
-      }
-      sum(diff(year) * (head(annual_flow, -1L) + tail(annual_flow, -1L))/2)
-  }
-  revenue_annual <- five_year_series(revenue_variable, scenario_aid, provider_region) %>% mutate(Flow = "Provider carbon-tax revenue",
-      Unit = "million USD2010/yr")
-  revenue_cumulative <- five_year_series(cumulative_revenue_variable, scenario_aid, provider_region) %>% mutate(Flow = "Provider cumulative carbon-tax revenue",
-      Unit = "million USD2010")
-  loss_amount_annual <- five_year_series(loss_amount_variable, scenario_def, recipient_region) %>% mutate(Flow = "Recipient Def consumption loss",
-      Unit = "billion USD2010/yr")
-  actual_cumulative_aid <- one_value(cumulative_revenue_variable, scenario_aid, provider_region, end_year)/1e+06
-  accounting_zero_loss_funding <- trapezoid_integral(loss_amount_annual$Year, loss_amount_annual$Value)/1000
-  if (!is.finite(actual_cumulative_aid) || actual_cumulative_aid <= 0) {
-      stop("The cumulative provider transfer must be positive.")
-  }
-  if (!is.finite(accounting_zero_loss_funding) || accounting_zero_loss_funding <= 0) {
-      stop("The cumulative Def recipient consumption loss must be positive.")
-  }
-  plot_data <- tibble::tribble(~Group, ~Scenario, ~Region, ~ScenarioCode, "Provider", "Def", provider_region, scenario_def,
-      "Provider", "Aid", provider_region, scenario_aid, "Recipient", "Def", recipient_region, scenario_def, "Recipient", "Aid",
-      recipient_region, scenario_aid) %>% rowwise() %>% mutate(CumulativeAid_trillion_USD2010 = if_else(Scenario == "Def",
-      0, actual_cumulative_aid), AverageAnnualAid_trillion_USD2010_per_year = CumulativeAid_trillion_USD2010/period_years,
-      CumulativeConsumptionLossRate_pct = one_value(loss_rate_variable, ScenarioCode, Region, end_year)) %>% ungroup() %>%
-      mutate(Group = factor(Group, levels = c("Provider", "Recipient")), Scenario = factor(Scenario, levels = c("Def", "Aid")))
-  recipient_points <- plot_data %>% filter(Group == "Recipient") %>% arrange(Scenario)
-  recipient_def_loss_rate <- recipient_points$CumulativeConsumptionLossRate_pct[recipient_points$Scenario == "Def"]
-  recipient_aid_loss_rate <- recipient_points$CumulativeConsumptionLossRate_pct[recipient_points$Scenario == "Aid"]
-  denominator <- recipient_def_loss_rate - recipient_aid_loss_rate
-  if (!is.finite(denominator) || denominator <= 0) {
-      stop("The recipient Def-Aid line does not imply a positive zero-loss crossing.")
-  }
-  cge_zero_loss_funding <- actual_cumulative_aid * recipient_def_loss_rate/denominator
-  if (cge_zero_loss_funding < 0 || cge_zero_loss_funding > actual_cumulative_aid) {
-      stop("The CGE-implied zero-loss crossing is outside the Def-Aid interval.")
-  }
-  funding_gap <- accounting_zero_loss_funding - cge_zero_loss_funding
-  funding_ratio <- accounting_zero_loss_funding/cge_zero_loss_funding
-  benchmarks <- tibble::tibble(Metric = c("Actual cumulative Aid transfer", "CGE-implied recipient zero-loss funding", "Def-loss accounting benchmark",
-      "Accounting benchmark minus CGE", "Accounting benchmark / CGE"), Value = c(actual_cumulative_aid, cge_zero_loss_funding,
-      accounting_zero_loss_funding, funding_gap, funding_ratio), Unit = c(rep("trillion USD2010, undiscounted", 4), "ratio"))
-  provider_colour <- "#3F6C8E"
-  recipient_colour <- "#B6573F"
-  ink <- "#222222"
-  x_max <- max(actual_cumulative_aid, cge_zero_loss_funding, accounting_zero_loss_funding) * 1.12
-  y_values <- plot_data$CumulativeConsumptionLossRate_pct
-  y_span <- diff(range(c(y_values, 0)))
-  if (!is.finite(y_span) || y_span == 0) y_span <- 1
-  y_min <- min(y_values, 0) - 0.13 * y_span
-  y_max <- max(y_values, 0) + 0.18 * y_span
-  benchmark_points <- tibble::tibble(Benchmark = c("CGE-implied", "Def-loss benchmark"), X = c(cge_zero_loss_funding, accounting_zero_loss_funding),
-      Y = 0, Label = c(number(cge_zero_loss_funding, accuracy = 0.1), number(accounting_zero_loss_funding, accuracy = 0.1)),
-      LabelY = c(0.075 * y_span, -0.1 * y_span))
-  x_breaks <- pretty(c(0, x_max), n = 6)
-  x_breaks <- x_breaks[x_breaks >= 0 & x_breaks <= x_max]
-  figure <- ggplot(plot_data, aes(x = CumulativeAid_trillion_USD2010, y = CumulativeConsumptionLossRate_pct, color = Group,
-      group = Group)) + geom_hline(yintercept = 0, color = ink, linewidth = 0.55) + geom_vline(xintercept = 0, color = ink,
-      linewidth = 0.55) + geom_line(linetype = "dotted", linewidth = 1) + geom_point(aes(shape = Scenario, fill = interaction(Group,
-      Scenario)), size = 4.2, stroke = 1.05) + geom_segment(data = tibble::tibble(x = min(accounting_zero_loss_funding, cge_zero_loss_funding),
-      xend = max(accounting_zero_loss_funding, cge_zero_loss_funding), y = 0, yend = 0), aes(x = x, xend = xend, y = y, yend = yend),
-      inherit.aes = FALSE, color = "#999999", linewidth = 3.2, alpha = 0.35, lineend = "round") + annotate("label", x = mean(c(cge_zero_loss_funding,
-      accounting_zero_loss_funding)), y = -0.035 * y_span, label = number(funding_gap, accuracy = 0.1), size = 3, linewidth = 0,
-      fill = alpha("white", 0.9), color = "#666666") + geom_point(data = benchmark_points, aes(x = X, y = Y, shape = Benchmark),
-      inherit.aes = FALSE, size = 4, stroke = 1, color = ink, fill = "white") + geom_label(data = benchmark_points, aes(x = X,
-      y = LabelY, label = Label), inherit.aes = FALSE, size = 3.25, lineheight = 0.95, linewidth = 0, fill = alpha("white",
-      0.9), color = ink) + scale_color_manual(values = c(Provider = provider_colour, Recipient = recipient_colour), name = NULL) +
-      scale_fill_manual(values = c(Provider.Def = "white", Provider.Aid = provider_colour, Recipient.Def = "white", Recipient.Aid = recipient_colour),
-          guide = "none") + scale_shape_manual(values = c(Def = 1, Aid = 16, `CGE-implied` = 23, `Def-loss benchmark` = 24),
-      breaks = c("Def", "Aid", "CGE-implied", "Def-loss benchmark"), labels = c("Def", "Aid", "CGE-implied zero loss", "Def-loss benchmark"),
-      name = NULL) + scale_x_continuous(breaks = x_breaks, labels = label_number(accuracy = 1), limits = c(0, x_max), expand = expansion(mult = c(0,
-      0)), sec.axis = sec_axis(~./period_years, breaks = x_breaks/period_years, labels = label_number(accuracy = 0.1), name = "Average annual amount, 2030-2050 (trillion US$2010/yr)")) +
-      scale_y_continuous(labels = label_number(accuracy = 1, suffix = "%"), limits = c(y_min, y_max), expand = expansion(mult = c(0,
-          0))) + coord_cartesian(clip = "off") + labs(x = "Cumulative transfer from 2030 to 2050 (trillion US$2010)", y = "Cumulative consumption loss rate in 2050") +
-      guides(color = guide_legend(order = 1, override.aes = list(linetype = 0, size = 3)), shape = guide_legend(order = 2,
-          override.aes = list(color = ink))) + theme_classic(base_size = 11, base_family = "sans") + theme(panel.background = element_rect(fill = "white",
-      color = NA), plot.background = element_rect(fill = "white", color = NA), axis.line = element_line(color = ink, linewidth = 0.55),
-      axis.ticks = element_line(color = ink, linewidth = 0.45), axis.title = element_text(color = ink, size = 10.5), axis.text = element_text(color = ink,
-          size = 9.5), legend.position = "inside", legend.position.inside = c(0.8, 0.76), legend.direction = "vertical", legend.background = element_rect(fill = "white",
-          color = NA), legend.key = element_blank(), plot.margin = margin(10, 12, 10, 10))
-  png_file <- file.path(output_dir, "Cumulative_transfer_zero_loss_2050.png")
-  svg_file <- file.path(output_dir, "Cumulative_transfer_zero_loss_2050.svg")
-  source_csv <- file.path(csv_dir, "Cumulative_transfer_zero_loss_2050_source_data.csv")
-  benchmark_csv <- file.path(csv_dir, "Cumulative_transfer_zero_loss_2050_benchmarks.csv")
-  annual_csv <- file.path(csv_dir, "Cumulative_transfer_zero_loss_2050_annual_flows.csv")
-  ggsave(png_file, figure, width = 7.4, height = 6.2, dpi = 600, bg = "white")
-  if (requireNamespace("svglite", quietly = TRUE)) {
-      ggsave(svg_file, figure, width = 7.4, height = 6.2, device = svglite::svglite, bg = "white")
-  }
-  write.csv(plot_data, source_csv, row.names = FALSE, na = "")
-  write.csv(benchmarks, benchmark_csv, row.names = FALSE, na = "")
-  write.csv(bind_rows(revenue_annual %>% mutate(ConvertedValue = Value/1e+06, ConvertedUnit = "trillion USD2010/yr"), revenue_cumulative %>%
-      mutate(ConvertedValue = Value/1e+06, ConvertedUnit = "trillion USD2010"), loss_amount_annual %>% mutate(ConvertedValue = Value/1000,
-      ConvertedUnit = "trillion USD2010/yr")) %>% select(Flow, Year, Value, Unit, ConvertedValue, ConvertedUnit), annual_csv,
-      row.names = FALSE, na = "")
-  invisible(NULL)
-}
-
-build_transfer_base <- function(project_root) {
-  old_dir <- getwd()
-  on.exit(setwd(old_dir), add = TRUE)
-  setwd(project_root)
-  ggsave <- function(...) invisible(NULL)
-  unlink <- function(...) invisible(0L)
-  find_project_root <- function(start) {
-      current <- normalizePath(start, winslash = "/", mustWork = TRUE)
-      repeat {
-          marker <- file.path(current, "data", "All", "global_17_IAMC.gdx")
-          if (file.exists(marker))
-              return(current)
-          parent <- dirname(current)
-          if (identical(parent, current))
-              break
-          current <- parent
-      }
-      NA
-  }
-  script_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
-  script_dir <- if (length(script_arg)) {
-      dirname(normalizePath(sub("^--file=", "", script_arg[[1]]), winslash = "/"))
-  } else {
-      getwd()
-  }
-  project_root <- find_project_root(getwd())
-  if (is.na(project_root)) project_root <- find_project_root(script_dir)
-  if (is.na(project_root)) {
-      stop("Could not locate data/All/global_17_IAMC.gdx.")
-  }
-  local_library <- file.path(project_root, "Rlib")
-  if (dir.exists(local_library)) .libPaths(c(local_library, .libPaths()))
-  shared_libraries <- c(Sys.getenv("R_LIBS_USER"), "C:/ENVI5809/R_library")
-  shared_libraries <- shared_libraries[nzchar(shared_libraries) & dir.exists(shared_libraries)]
-  .libPaths(unique(c(shared_libraries, .libPaths())))
-  suppressPackageStartupMessages({
-      library(dplyr)
-      library(tidyr)
-      library(ggplot2)
-      library(scales)
-      library(patchwork)
-  })
-  scenario_def <- "SSP2_400C_2030CP_NoCC_No"
-  scenario_aid <- "SSP2_400C_2030CP_15th_NoCC_No"
-  scenarios_needed <- c(scenario_def, scenario_aid)
-  providers <- c("XE25", "JPN", "TUR", "CHN", "USA", "XER", "XOC", "CAN", "XLM", "CIS")
-  recipients <- c("XSA", "IND", "XNF", "XAF", "XSE", "BRA", "XME")
-  provider_aggregate <- "Rprovider15th"
-  recipient_aggregate <- "Rrecipient15th"
-  variables_needed <- c("Emi_CO2", "CNS", "GDP_MER", "Prc_Car", "Pol_Cos_Cns_Los", "Pol_Cos_Cns_Los_rat", "Pol_Cos_Cns_Los_rat_NPV_5pc",
-      "Pol_Cos_GDP_Los_rat_NPV_5pc", "Rev_gov_Tax_Car_Tax")
-  gdx_file <- file.path(project_root, "data", "All", "global_17_IAMC.gdx")
-  output_dir <- file.path(project_root, "output", "Figure", "analysis")
-  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  legacy_efficiency_png <- file.path(output_dir, "02_transfer_efficiency_2050.png")
-  if (file.exists(legacy_efficiency_png)) unlink(legacy_efficiency_png)
-  legacy_emissions_png <- file.path(output_dir, "01_transfer_emissions_equivalent_2050.png")
-  if (file.exists(legacy_emissions_png)) unlink(legacy_emissions_png)
-  read_iamc_gdxrrw <- function(path) {
-      if (!requireNamespace("gdxrrw", quietly = TRUE))
-          return(NULL)
-      gams_candidates <- c(Sys.getenv("GAMSDIR", unset = ""), "C:/GAMS/34", "C:/GAMS/win64/26.1")
-      gams_candidates <- unique(gams_candidates[nzchar(gams_candidates)])
-      for (candidate in gams_candidates) {
-          if (dir.exists(candidate)) {
-              loaded <- suppressWarnings(try(gdxrrw::igdx(candidate), silent = TRUE))
-              if (inherits(loaded, "try-error"))
-                  next
-              raw <- try(gdxrrw::rgdx.param(path, "IAMC_template"), silent = TRUE)
-              if (inherits(raw, "try-error"))
-                  next
-              return(data.frame(SCENARIO = as.character(raw$SCENARIO), REMF = as.character(raw$REMF), VEMF = as.character(raw$VEMF),
-                  Year = as.numeric(as.character(raw$YEMF)), Value = as.numeric(raw$IAMC_Template), stringsAsFactors = FALSE))
-          }
-      }
-      NULL
-  }
-  find_gdxdump <- function() {
-      from_path <- unname(Sys.which(c("gdxdump", "gdxdump.exe")))
-      from_path <- from_path[nzchar(from_path)]
-      candidates <- c(from_path, "C:/GAMS/34/gdxdump.exe", "C:/GAMS/win64/26.1/gdxdump.exe")
-      candidates <- unique(candidates)
-      hit <- candidates[file.exists(candidates)]
-      if (!length(hit))
-          return(NA)
-      normalizePath(hit[[1]], winslash = "/")
-  }
-  read_iamc_gdxdump <- function(path, scenarios, variables) {
-      gdxdump <- find_gdxdump()
-      if (is.na(gdxdump)) {
-          stop("Neither a working gdxrrw package nor gdxdump was found.")
-      }
-      dump_file <- tempfile("IAMC_template_", fileext = ".csv")
-      on.exit(unlink(dump_file), add = TRUE)
-      result <- system2(gdxdump, args = c(shQuote(normalizePath(path, winslash = "/")), "symb=IAMC_template", "format=csv",
-          paste0("output=", shQuote(dump_file))), stdout = TRUE, stderr = TRUE)
-      status <- attr(result, "status")
-      if (is.null(status))
-          status <- 0L
-      if (status != 0L || !file.exists(dump_file)) {
-          stop("gdxdump failed: ", paste(result, collapse = "\n"))
-      }
-      con <- file(dump_file, open = "r", encoding = "UTF-8")
-      on.exit(close(con), add = TRUE)
-      invisible(readLines(con, n = 1L, warn = FALSE))
-      pieces <- list()
-      piece_id <- 0L
-      repeat {
-          lines <- readLines(con, n = 200000L, warn = FALSE)
-          if (!length(lines))
-              break
-          scenario_hit <- rep(FALSE, length(lines))
-          for (scenario in scenarios) {
-              scenario_hit <- scenario_hit | startsWith(lines, paste0("\"", scenario, "\","))
-          }
-          variable_hit <- rep(FALSE, length(lines))
-          for (variable in variables) {
-              variable_hit <- variable_hit | grepl(paste0(",\"", variable, "\","), lines, fixed = TRUE)
-          }
-          selected <- lines[scenario_hit & variable_hit]
-          if (length(selected)) {
-              piece_id <- piece_id + 1L
-              pieces[[piece_id]] <- read.csv(text = paste(selected, collapse = "\n"), header = FALSE, col.names = c("SCENARIO",
-                  "REMF", "VEMF", "Year", "Value"), stringsAsFactors = FALSE)
-          }
-      }
-      if (!length(pieces))
-          stop("No required records were read from IAMC_template.")
-      do.call(rbind, pieces)
-  }
-  message("Reading IAMC_template from: ", gdx_file)
-  iamc <- read_iamc_gdxrrw(gdx_file)
-  if (is.null(iamc)) {
-      message("A working gdxrrw installation was not found; using gdxdump fallback.")
-      iamc <- read_iamc_gdxdump(gdx_file, scenarios_needed, variables_needed)
-  }
-  iamc <- iamc[iamc$SCENARIO %in% scenarios_needed & iamc$VEMF %in% variables_needed & is.finite(iamc$Year) & is.finite(iamc$Value),
-      c("SCENARIO", "REMF", "VEMF", "Year", "Value")]
-  one_value <- function(variable, scenario, region, year) {
-      values <- iamc$Value[iamc$VEMF == variable & iamc$SCENARIO == scenario & iamc$REMF == region & iamc$Year == year]
-      if (length(values) != 1L || !is.finite(values)) {
-          stop("Expected one finite value for ", variable, ", ", scenario, ", ", region, ", ", year, "; found ", length(values),
-              ".")
-      }
-      values
-  }
-  sum_values <- function(variable, scenario, regions, year) {
-      rows <- iamc[iamc$VEMF == variable & iamc$SCENARIO == scenario & iamc$REMF %in% regions & iamc$Year == year, ]
-      if (nrow(rows) != length(regions) || any(!is.finite(rows$Value))) {
-          stop("Expected one finite ", variable, " value for each of ", length(regions), " regions in ", year, ".")
-      }
-      sum(rows$Value)
-  }
-  transfer_rows <- iamc[iamc$VEMF == "Rev_gov_Tax_Car_Tax" & iamc$SCENARIO == scenario_aid & iamc$REMF %in% providers & iamc$Year >=
-      2030 & iamc$Year <= 2050, ]
-  if (!nrow(transfer_rows)) stop("No provider carbon-tax revenue records found.")
-  transfer_annual <- aggregate(Value ~ Year, data = transfer_rows, FUN = sum)
-  names(transfer_annual)[names(transfer_annual) == "Value"] <- "Transfer_million_USD2010"
-  transfer_annual <- transfer_annual[order(transfer_annual$Year), ]
-  model_years <- seq(2030, 2050, by = 5)
-  if (!all(model_years %in% transfer_annual$Year)) {
-      stop("The transfer series does not contain every five-year model point, 2030-2050.")
-  }
-  transfer_2050_musd <- transfer_annual$Transfer_million_USD2010[transfer_annual$Year == 2050]
-  if (length(transfer_2050_musd) != 1L || transfer_2050_musd <= 0) {
-      stop("The 2050 transfer pool must be a single positive value.")
-  }
-  world_carbon_price_2050 <- one_value("Prc_Car", scenario_aid, "World", 2050)
-  if (world_carbon_price_2050 <= 0) stop("The 2050 world carbon price must be positive.")
-  provider_gdp_2050_busd <- sum(iamc$Value[iamc$VEMF == "GDP_MER" & iamc$SCENARIO == scenario_aid & iamc$REMF %in% providers &
-      iamc$Year == 2050])
-  transfer_share_provider_gdp <- 100 * (transfer_2050_musd/1000)/provider_gdp_2050_busd
-  if (!is.finite(transfer_share_provider_gdp) || transfer_share_provider_gdp > 100) {
-      stop("The assumed carbon-revenue unit is inconsistent with provider GDP.")
-  }
-  provider_emissions_check <- iamc[iamc$VEMF == "Emi_CO2" & iamc$SCENARIO == scenario_aid & iamc$REMF %in% providers & iamc$Year ==
-      2050, c("REMF", "Value")]
-  provider_price_check <- iamc[iamc$VEMF == "Prc_Car" & iamc$SCENARIO == scenario_aid & iamc$REMF %in% providers & iamc$Year ==
-      2050, c("REMF", "Value")]
-  names(provider_emissions_check)[2] <- "Emissions_MtCO2"
-  names(provider_price_check)[2] <- "Price_USD_per_tCO2"
-  tax_base_check <- merge(provider_emissions_check, provider_price_check, by = "REMF")
-  if (nrow(tax_base_check) != length(providers)) {
-      stop("Could not construct the 2050 emissions-times-price unit check.")
-  }
-  emissions_price_proxy_musd <- sum(tax_base_check$Emissions_MtCO2 * tax_base_check$Price_USD_per_tCO2)
-  revenue_to_emissions_price_proxy <- transfer_2050_musd/emissions_price_proxy_musd
-  billion_interpretation_mismatch <- (transfer_2050_musd * 1000)/emissions_price_proxy_musd
-  colour_developed <- "#3F6C8E"
-  colour_developing <- "#B6573F"
-  colour_transfer <- "#8E8E8E"
-  ink <- "#252525"
-  grid_colour <- "#E2E2E2"
-  theme_nature <- function() {
-      theme_classic(base_family = "Arial", base_size = 8) + theme(text = element_text(colour = ink), axis.line = element_line(linewidth = 0.3,
-          colour = ink), axis.line.x = element_blank(), axis.ticks = element_line(linewidth = 0.25, colour = ink), axis.ticks.length = grid::unit(1.2,
-          "mm"), axis.title = element_text(size = 8.2), axis.text = element_text(size = 7.4, colour = ink), plot.title = element_blank(),
-          plot.subtitle = element_blank(), plot.caption = element_blank(), panel.grid.major.y = element_line(colour = grid_colour,
-              linewidth = 0.22), panel.grid.minor = element_blank(), legend.position = "bottom", legend.justification = "left",
-          legend.box.just = "left", legend.title = element_text(size = 7.4, face = "plain"), legend.text = element_text(size = 7.4),
-          legend.key.height = grid::unit(3.5, "mm"), legend.key.width = grid::unit(7, "mm"), legend.spacing.y = grid::unit(0.3,
-              "mm"), legend.margin = margin(t = 2, unit = "mm"), plot.margin = margin(4, 6, 3, 4))
-  }
-  save_png <- function(filename, plot, height_mm) {
-      ggsave(filename = file.path(output_dir, filename), plot = plot, device = "png", type = "cairo", width = 180, height = height_mm,
-          units = "mm", dpi = 400, bg = "white")
-  }
-  annual_emissions_data <- do.call(rbind, lapply(model_years, function(year) {
-      transfer_musd <- transfer_annual$Transfer_million_USD2010[transfer_annual$Year == year]
-      world_price <- one_value("Prc_Car", scenario_aid, "World", year)
-      if (length(transfer_musd) != 1L || world_price <= 0) {
-          stop("Missing transfer or non-positive world carbon price in ", year, ".")
-      }
-      developed_actual <- (one_value("Emi_CO2", scenario_aid, provider_aggregate, year) - one_value("Emi_CO2", scenario_def,
-          provider_aggregate, year))/1000
-      developing_actual <- (one_value("Emi_CO2", scenario_aid, recipient_aggregate, year) - one_value("Emi_CO2", scenario_def,
-          recipient_aggregate, year))/1000
-      transfer_equivalent <- transfer_musd/world_price/1000
-      data.frame(Year = rep(year, 4), Region = rep(c("Developed regions", "Developing regions"), 2), Measure = rep(c("Actual emissions response (Aid - Def)",
-          "Transfer-equivalent quantity (funds / carbon price)"), each = 2), Change_GtCO2 = c(developed_actual, developing_actual,
-          -transfer_equivalent, transfer_equivalent), World_carbon_price = world_price)
-  }))
-  annual_emissions_data$Region <- factor(annual_emissions_data$Region, levels = c("Developed regions", "Developing regions"))
-  annual_emissions_data$Measure <- factor(annual_emissions_data$Measure, levels = c("Actual emissions response (Aid - Def)",
-      "Transfer-equivalent quantity (funds / carbon price)"))
-  p_emissions <- ggplot(annual_emissions_data, aes(x = Year, y = Change_GtCO2, colour = Region, group = Region)) + geom_hline(yintercept = 0,
-      linewidth = 0.35, colour = ink) + geom_line(linewidth = 0.68) + geom_point(shape = 21, fill = "white", stroke = 0.5,
-      size = 1.85) + facet_wrap(vars(Measure), ncol = 1, scales = "free_y", strip.position = "top") + scale_colour_manual(values = c(`Developed regions` = colour_developed,
-      `Developing regions` = colour_developing), guide = guide_legend(title = "Region", nrow = 1)) + scale_x_continuous(breaks = model_years,
-      limits = c(2029.2, 2050.8), expand = expansion(mult = c(0, 0))) + scale_y_continuous(name = expression("Change in CO"[2] *
-      " emissions (Gt CO"[2] * " " * yr^{
-      -1
-  } * ")"), labels = label_number(accuracy = 0.1), expand = expansion(mult = c(0.13, 0.13))) + labs(x = NULL) + theme_nature() +
-      theme(panel.spacing.y = grid::unit(4, "mm"), strip.placement = "outside", strip.background = element_blank(), strip.text.x = element_text(face = "plain",
-          size = 7.8, hjust = 0, margin = margin(1, 0, 2, 0, unit = "mm")))
-  save_png("01_transfer_emissions_equivalent_2030_2050.png", p_emissions, 102)
-  equivalent_max <- max(abs(annual_emissions_data$Change_GtCO2[annual_emissions_data$Measure == "Transfer-equivalent quantity (funds / carbon price)"]))
-  combined_emissions_data <- annual_emissions_data
-  actual_label_data <- combined_emissions_data[combined_emissions_data$Measure == "Actual emissions response (Aid - Def)",
-      ]
-  actual_label_data$Label_y <- ifelse(actual_label_data$Change_GtCO2 >= 0, equivalent_max * 0.065, -equivalent_max * 0.065)
-  p_emissions_combined <- ggplot(combined_emissions_data, aes(x = Year, y = Change_GtCO2, colour = Region, linetype = Measure,
-      shape = Measure, group = interaction(Region, Measure))) + geom_hline(yintercept = 0, linewidth = 0.35, colour = ink) +
-      geom_line(linewidth = 0.68) + geom_point(fill = "white", stroke = 0.5, size = 1.85) + geom_segment(data = actual_label_data,
-      aes(xend = Year, yend = Label_y), linewidth = 0.22, show.legend = FALSE) + geom_text(data = actual_label_data, aes(y = Label_y,
-      label = sprintf("%+.2f", Change_GtCO2)), family = "Arial", fontface = "plain", size = 2.05, vjust = ifelse(actual_label_data$Label_y >
-      0, -0.35, 1.25), show.legend = FALSE) + scale_colour_manual(values = c(`Developed regions` = colour_developed, `Developing regions` = colour_developing),
-      guide = guide_legend(order = 1, title = "Region", nrow = 1)) + scale_linetype_manual(values = c(`Actual emissions response (Aid - Def)` = "solid",
-      `Transfer-equivalent quantity (funds / carbon price)` = "22"), guide = guide_legend(order = 2, title = "Measure", nrow = 1)) +
-      scale_shape_manual(values = c(`Actual emissions response (Aid - Def)` = 21, `Transfer-equivalent quantity (funds / carbon price)` = 24),
-          guide = "none") + scale_x_continuous(breaks = model_years, limits = c(2029.2, 2050.8), expand = expansion(mult = c(0,
-      0))) + scale_y_continuous(name = expression("Emission change or equivalent quantity (Gt CO"[2] * " " * yr^{
-      -1
-  } * ")"), labels = label_number(accuracy = 1), expand = expansion(mult = c(0.1, 0.1))) + labs(x = NULL) + theme_nature() +
-      theme(legend.box = "vertical")
-  save_png("01b_transfer_emissions_equivalent_combined_2030_2050.png", p_emissions_combined, 88)
-  developed_emissions_change <- annual_emissions_data$Change_GtCO2[annual_emissions_data$Year == 2050 & annual_emissions_data$Region ==
-      "Developed regions" & annual_emissions_data$Measure == "Actual emissions response (Aid - Def)"]
-  developing_emissions_change <- annual_emissions_data$Change_GtCO2[annual_emissions_data$Year == 2050 & annual_emissions_data$Region ==
-      "Developing regions" & annual_emissions_data$Measure == "Actual emissions response (Aid - Def)"]
-  allowance_equivalent_gt <- abs(annual_emissions_data$Change_GtCO2[annual_emissions_data$Year == 2050 & annual_emissions_data$Region ==
-      "Developing regions" & annual_emissions_data$Measure == "Transfer-equivalent quantity (funds / carbon price)"])
-  annual_efficiency <- do.call(rbind, lapply(model_years, function(year) {
-      transfer_busd <- transfer_annual$Transfer_million_USD2010[transfer_annual$Year == year]/1000
-      recipient_benefit_busd <- sum_values("Pol_Cos_Cns_Los", scenario_def, recipients, year) - sum_values("Pol_Cos_Cns_Los",
-          scenario_aid, recipients, year)
-      provider_burden_busd <- sum_values("Pol_Cos_Cns_Los", scenario_aid, providers, year) - sum_values("Pol_Cos_Cns_Los",
-          scenario_def, providers, year)
-      recipient_cns_gain_busd <- sum_values("CNS", scenario_aid, recipients, year) - sum_values("CNS", scenario_def, recipients,
-          year)
-      provider_cns_loss_busd <- sum_values("CNS", scenario_def, providers, year) - sum_values("CNS", scenario_aid, providers,
-          year)
-      data.frame(Year = year, Transfer_billion_USD2010 = transfer_busd, Recipient_benefit_billion_USD2010 = recipient_benefit_busd,
-          Provider_burden_billion_USD2010 = provider_burden_busd, Recipient_efficiency = recipient_benefit_busd/transfer_busd,
-          Provider_burden_ratio = provider_burden_busd/transfer_busd, Recipient_identity_gap = recipient_benefit_busd - recipient_cns_gain_busd,
-          Provider_identity_gap = provider_burden_busd - provider_cns_loss_busd)
-  }))
-  if (any(abs(annual_efficiency$Recipient_identity_gap) > 1e-06) || any(abs(annual_efficiency$Provider_identity_gap) > 1e-06)) {
-      stop("Pol_Cos_Cns_Los and CNS imply inconsistent annual consumption effects.")
-  }
-  if (any(annual_efficiency$Transfer_billion_USD2010 <= 0)) {
-      stop("Annual transfer amounts must be positive to calculate efficiency.")
-  }
-  money_plot_data <- rbind(data.frame(Year = annual_efficiency$Year, PlotYear = annual_efficiency$Year - 0.68, Amount_trillion_USD2010 = annual_efficiency$Recipient_benefit_billion_USD2010/1000,
-      Series = "Recipient consumption gain"), data.frame(Year = annual_efficiency$Year, PlotYear = annual_efficiency$Year -
-      0.68, Amount_trillion_USD2010 = -annual_efficiency$Provider_burden_billion_USD2010/1000, Series = "Provider consumption loss"),
-      data.frame(Year = annual_efficiency$Year, PlotYear = annual_efficiency$Year + 0.68, Amount_trillion_USD2010 = annual_efficiency$Transfer_billion_USD2010/1000,
-          Series = "Transfer received/provided"), data.frame(Year = annual_efficiency$Year, PlotYear = annual_efficiency$Year +
-          0.68, Amount_trillion_USD2010 = -annual_efficiency$Transfer_billion_USD2010/1000, Series = "Transfer received/provided"))
-  money_plot_data$Series <- factor(money_plot_data$Series, levels = c("Recipient consumption gain", "Provider consumption loss",
-      "Transfer received/provided"))
-  ratio_plot_data <- rbind(data.frame(Year = annual_efficiency$Year, Signed_ratio = annual_efficiency$Recipient_efficiency,
-      Ratio = "Recipient: gain / transfer"), data.frame(Year = annual_efficiency$Year, Signed_ratio = -annual_efficiency$Provider_burden_ratio,
-      Ratio = "Provider: loss / transfer"))
-  ratio_plot_data$Ratio <- factor(ratio_plot_data$Ratio, levels = c("Recipient: gain / transfer", "Provider: loss / transfer"))
-  money_max <- max(abs(money_plot_data$Amount_trillion_USD2010))
-  ratio_max <- max(abs(ratio_plot_data$Signed_ratio))
-  efficiency_axis_scale <- 0.82 * money_max/ratio_max
-  ratio_plot_data$Scaled_ratio <- ratio_plot_data$Signed_ratio * efficiency_axis_scale
-  ratio_plot_display <- ratio_plot_data[ratio_plot_data$Year >= 2035, ]
-  p_efficiency <- ggplot() + geom_col(data = money_plot_data, aes(x = PlotYear, y = Amount_trillion_USD2010, fill = Series),
-      width = 1.08, colour = NA, alpha = 0.88) + geom_hline(yintercept = 0, colour = ink, linewidth = 0.35) + geom_line(data = ratio_plot_display,
-      aes(x = Year, y = Scaled_ratio, colour = Ratio, group = Ratio), linewidth = 0.68) + geom_point(data = ratio_plot_display,
-      aes(x = Year, y = Scaled_ratio, colour = Ratio), shape = 18, size = 2.1) + geom_text(data = ratio_plot_display, aes(x = Year,
-      y = Scaled_ratio, label = sprintf("%.1f", abs(Signed_ratio)), colour = Ratio, vjust = ifelse(Signed_ratio >= 0, -0.95,
-          1.45)), family = "Arial", fontface = "plain", size = 2.05, show.legend = FALSE) + scale_fill_manual(values = c(`Recipient consumption gain` = colour_developing,
-      `Provider consumption loss` = colour_developed, `Transfer received/provided` = colour_transfer), breaks = "Transfer received/provided",
-      labels = "Transferred money", guide = guide_legend(order = 3, title = NULL, nrow = 1)) + scale_colour_manual(values = c(`Recipient: gain / transfer` = colour_developing,
-      `Provider: loss / transfer` = colour_developed), labels = c(`Recipient: gain / transfer` = "Developing", `Provider: loss / transfer` = "Developed"),
-      guide = guide_legend(order = 1, title = NULL, nrow = 1)) + scale_x_continuous(breaks = model_years, limits = c(2028.2,
-      2051.8), expand = expansion(mult = c(0, 0))) + scale_y_continuous(name = "Annual consumption change (trillion US$2010 yr-1)",
-      labels = function(x) label_number(accuracy = 0.1)(abs(x)), sec.axis = sec_axis(~./efficiency_axis_scale, name = "Consumption/Transfer",
-          labels = function(x) label_number(accuracy = 0.1)(abs(x))), expand = expansion(mult = c(0.1, 0.1))) + labs(x = NULL) +
-      coord_cartesian(clip = "off") + theme_nature() + theme(panel.grid = element_blank(), panel.grid.major.y = element_blank(),
-      panel.border = element_rect(fill = NA, colour = ink, linewidth = 0.3), axis.line = element_blank(), legend.box = "vertical",
-      axis.title.y.right = element_text(colour = "#4B4B4B"), axis.text.y.right = element_text(colour = "#4B4B4B"))
-  save_png("02_transfer_efficiency_2030_2050.png", p_efficiency, 94)
-  developing_loss_reduction_busd <- annual_efficiency$Recipient_benefit_billion_USD2010[annual_efficiency$Year == 2050]
-  provider_burden_2050_busd <- annual_efficiency$Provider_burden_billion_USD2010[annual_efficiency$Year == 2050]
-  transfer_2050_busd <- transfer_2050_musd/1000
-  transfer_efficiency <- annual_efficiency$Recipient_efficiency[annual_efficiency$Year == 2050]
-  provider_burden_ratio_2050 <- annual_efficiency$Provider_burden_ratio[annual_efficiency$Year == 2050]
-  identity_gap_busd <- max(abs(annual_efficiency$Recipient_identity_gap), abs(annual_efficiency$Provider_identity_gap))
-  aggregate_loss_reduction_busd <- one_value("Pol_Cos_Cns_Los", scenario_def, recipient_aggregate, 2050) - one_value("Pol_Cos_Cns_Los",
-      scenario_aid, recipient_aggregate, 2050)
-  aggregate_row_efficiency <- aggregate_loss_reduction_busd/transfer_2050_busd
-  aggregate_provider_transfer_busd <- one_value("Rev_gov_Tax_Car_Tax", scenario_aid, provider_aggregate, 2050)/1000
-  aggregate_both_efficiency <- aggregate_loss_reduction_busd/aggregate_provider_transfer_busd
-  loss_data <- iamc[iamc$VEMF == "Pol_Cos_Cns_Los_rat" & iamc$SCENARIO %in% scenarios_needed & iamc$REMF %in% c(provider_aggregate,
-      recipient_aggregate) & iamc$Year %in% model_years, ]
-  if (nrow(loss_data) != length(model_years) * 2L * 2L) {
-      stop("Expected 20 consumption-loss observations for 2030-2050.")
-  }
-  loss_data$Region <- factor(ifelse(loss_data$REMF == provider_aggregate, "Developed regions", "Developing regions"), levels = c("Developed regions",
-      "Developing regions"))
-  loss_data$Policy <- factor(ifelse(loss_data$SCENARIO == scenario_def, "No transfer (Def)", "Climate finance (Aid)"), levels = c("No transfer (Def)",
-      "Climate finance (Aid)"))
-  names(loss_data)[names(loss_data) == "Value"] <- "Consumption_loss_pct"
-  loss_data <- loss_data[order(loss_data$Region, loss_data$Policy, loss_data$Year), ]
-  p_timing <- ggplot(loss_data, aes(x = Year, y = Consumption_loss_pct, colour = Region, linetype = Policy, shape = Policy,
-      group = interaction(Region, Policy))) + geom_hline(yintercept = 0, linewidth = 0.35, colour = ink) + geom_line(linewidth = 0.68) +
-      geom_point(stroke = 0.55, size = 1.9) + scale_colour_manual(values = c(`Developed regions` = colour_developed, `Developing regions` = colour_developing),
-      labels = c(`Developed regions` = "Developed", `Developing regions` = "Developing"), guide = guide_legend(order = 1, title = NULL,
-          nrow = 1)) + scale_linetype_manual(values = c(`No transfer (Def)` = "22", `Climate finance (Aid)` = "solid"), labels = c(`No transfer (Def)` = "Def",
-      `Climate finance (Aid)` = "Aid"), guide = guide_legend(order = 2, title = NULL, nrow = 1)) + scale_shape_manual(values = c(`No transfer (Def)` = 1,
-      `Climate finance (Aid)` = 16), labels = c(`No transfer (Def)` = "Def", `Climate finance (Aid)` = "Aid"), guide = guide_legend(order = 2,
-      title = NULL, nrow = 1)) + scale_x_continuous(breaks = model_years, expand = expansion(mult = c(0, 0))) + scale_y_continuous(name = "Consumption loss rate (%)",
-      labels = label_number(accuracy = 1), expand = expansion(mult = c(0.08, 0.09))) + labs(x = NULL) + coord_cartesian(xlim = c(2028.3,
-      2051.7), clip = "off") + theme_nature() + theme(panel.grid = element_blank(), panel.grid.major.y = element_blank(), panel.border = element_rect(fill = NA,
-      colour = ink, linewidth = 0.3), axis.line = element_blank(), panel.background = element_rect(fill = "white", colour = NA),
-      plot.background = element_rect(fill = "white", colour = NA))
-  cumulative_region_codes <- c("World", provider_aggregate, recipient_aggregate)
-  cumulative_region_labels <- c("World", "Developed regions", "Developing regions")
-  cumulative_loss_data <- iamc[iamc$VEMF == "Pol_Cos_Cns_Los_rat_NPV_5pc" & iamc$SCENARIO %in% scenarios_needed & iamc$REMF %in%
-      cumulative_region_codes & iamc$Year == 2050, ]
-  if (nrow(cumulative_loss_data) != 6L) {
-      stop("Expected six 2050 cumulative consumption-loss observations.")
-  }
-  if (anyDuplicated(cumulative_loss_data[c("SCENARIO", "REMF", "Year")])) {
-      stop("Duplicate 2050 cumulative consumption-loss observations.")
-  }
-  cumulative_loss_data$Region <- factor(cumulative_region_labels[match(cumulative_loss_data$REMF, cumulative_region_codes)],
-      levels = cumulative_region_labels)
-  cumulative_loss_data$Policy <- factor(ifelse(cumulative_loss_data$SCENARIO == scenario_def, "No transfer (Def)", "Climate finance (Aid)"),
-      levels = c("No transfer (Def)", "Climate finance (Aid)"))
-  names(cumulative_loss_data)[names(cumulative_loss_data) == "Value"] <- "Cumulative_loss_pct"
-  p_cumulative_loss <- ggplot(cumulative_loss_data, aes(x = Region, y = Cumulative_loss_pct, colour = Region, shape = Policy,
-      group = Policy)) + geom_hline(yintercept = 0, linewidth = 0.35, colour = ink) + geom_point(position = position_dodge(width = 0.3),
-      size = 2.35, stroke = 0.6) + scale_colour_manual(values = c(World = ink, `Developed regions` = colour_developed, `Developing regions` = colour_developing),
-      limits = cumulative_region_labels, drop = FALSE, guide = "none") + scale_shape_manual(values = c(`No transfer (Def)` = 1,
-      `Climate finance (Aid)` = 16), guide = "none") + scale_x_discrete(labels = c(World = "World", `Developed regions` = "Developed",
-      `Developing regions` = "Developing")) + scale_y_continuous(name = "Cumulative consumption loss in 2050 (%)", labels = label_number(accuracy = 1),
-      expand = expansion(mult = c(0.15, 0.18))) + labs(x = NULL) + theme_nature() + theme(panel.grid = element_blank(), panel.grid.major.y = element_blank(),
-      panel.border = element_rect(fill = NA, colour = ink, linewidth = 0.3), axis.line = element_blank(), panel.background = element_rect(fill = "white",
-          colour = NA), plot.background = element_rect(fill = "white", colour = NA), axis.text.x = element_text(angle = 35,
-          hjust = 1, vjust = 1), legend.position = "none")
-  cumulative_gdp_data <- iamc[iamc$VEMF == "Pol_Cos_GDP_Los_rat_NPV_5pc" & iamc$SCENARIO %in% scenarios_needed & iamc$REMF %in%
-      cumulative_region_codes & iamc$Year == 2050, ]
-  if (nrow(cumulative_gdp_data) != 6L) {
-      stop("Expected six 2050 cumulative GDP-loss observations.")
-  }
-  if (anyDuplicated(cumulative_gdp_data[c("SCENARIO", "REMF", "Year")])) {
-      stop("Duplicate 2050 cumulative GDP-loss observations.")
-  }
-  cumulative_gdp_data$Region <- factor(cumulative_region_labels[match(cumulative_gdp_data$REMF, cumulative_region_codes)],
-      levels = cumulative_region_labels)
-  cumulative_gdp_data$Policy <- factor(ifelse(cumulative_gdp_data$SCENARIO == scenario_def, "No transfer (Def)", "Climate finance (Aid)"),
-      levels = c("No transfer (Def)", "Climate finance (Aid)"))
-  names(cumulative_gdp_data)[names(cumulative_gdp_data) == "Value"] <- "Cumulative_GDP_loss_pct"
-  p_cumulative_gdp <- ggplot(cumulative_gdp_data, aes(x = Region, y = Cumulative_GDP_loss_pct, colour = Region, shape = Policy,
-      group = Policy)) + geom_hline(yintercept = 0, linewidth = 0.35, colour = ink) + geom_point(position = position_dodge(width = 0.3),
-      size = 2.35, stroke = 0.6) + scale_colour_manual(values = c(World = ink, `Developed regions` = colour_developed, `Developing regions` = colour_developing),
-      limits = cumulative_region_labels, drop = FALSE, guide = "none") + scale_shape_manual(values = c(`No transfer (Def)` = 1,
-      `Climate finance (Aid)` = 16), guide = "none") + scale_x_discrete(labels = c(World = "World", `Developed regions` = "Developed",
-      `Developing regions` = "Developing")) + scale_y_continuous(name = "Cumulative GDP loss in 2050 (%)", labels = label_number(accuracy = 1),
-      expand = expansion(mult = c(0.15, 0.18))) + labs(x = NULL) + theme_nature() + theme(panel.grid = element_blank(), panel.grid.major.y = element_blank(),
-      panel.border = element_rect(fill = NA, colour = ink, linewidth = 0.3), axis.line = element_blank(), panel.background = element_rect(fill = "white",
-          colour = NA), plot.background = element_rect(fill = "white", colour = NA), axis.text.x = element_text(angle = 35,
-          hjust = 1, vjust = 1), legend.position = "none")
-  gdp_scenario_paths <- c(BaU = file.path(project_root, "data", "All", "SSP2_BaU_NoCC_No.gdx"), Def = file.path(project_root,
-      "data", "All", "SSP2_400C_2030CP_NoCC_No.gdx"), Aid = file.path(project_root, "data", "All", "SSP2_400C_2030CP_15th_NoCC_No.gdx"))
-  missing_gdp_files <- gdp_scenario_paths[!file.exists(gdp_scenario_paths)]
-  if (length(missing_gdp_files)) {
-      stop("Missing GDP decomposition GDX file(s): ", paste(missing_gdp_files, collapse = ", "))
-  }
-  if (!requireNamespace("gdxrrw", quietly = TRUE)) {
-      stop("gdxrrw is required to read GDP_s for the new decomposition panel.")
-  }
-  gdp_group_map <- tibble(Region_code = c(providers, recipients), Region_group = c(rep("Developed regions", length(providers)),
-      rep("Developing regions", length(recipients))))
-  gdp_group_levels <- c("Developed regions", "Developing regions")
-  gdp_category_levels <- c("Consumption", "Government spending", "Investment", "Net exports")
-  read_gdp_components <- function(scenario_name, path) {
-      raw <- gdxrrw::rgdx.param(path, "GDP_s")
-      required <- c("Y", "R", "INS_MCR", "GDP_s")
-      if (!all(required %in% names(raw))) {
-          stop("Unexpected GDP_s columns in ", basename(path), ".")
-      }
-      raw %>% transmute(Scenario = scenario_name, Year = as.numeric(as.character(Y)), Region_code = as.character(R), Category_code = as.character(INS_MCR),
-          Category = case_when(Category_code == "HURB" ~ "Consumption", Category_code == "GOV" ~ "Government spending", Category_code ==
-              "S-I" ~ "Investment", Category_code %in% c("ROW", "IMP") ~ "Net exports", TRUE ~ NA), Value = as.numeric(GDP_s))
-  }
-  gdp_raw <- bind_rows(Map(read_gdp_components, names(gdp_scenario_paths), unname(gdp_scenario_paths)))
-  if (any(is.na(gdp_raw$Year)) || any(!is.finite(gdp_raw$Value))) {
-      stop("GDP_s contains a non-numeric year or non-finite value.")
-  }
-  if (any(is.na(gdp_raw$Category))) {
-      stop("Unrecognised GDP_s category code(s): ", paste(unique(gdp_raw$Category_code[is.na(gdp_raw$Category)]), collapse = ", "))
-  }
-  gdp_grouped <- gdp_raw %>% filter(Year == 2050, Region_code %in% gdp_group_map$Region_code) %>% left_join(gdp_group_map,
-      by = "Region_code") %>% group_by(Scenario, Region_group, Category) %>% summarise(Value = sum(Value), .groups = "drop") %>%
-      complete(Scenario = names(gdp_scenario_paths), Region_group = gdp_group_levels, Category = gdp_category_levels, fill = list(Value = 0))
-  expected_gdp_rows <- length(gdp_scenario_paths) * length(gdp_group_levels) * length(gdp_category_levels)
-  if (nrow(gdp_grouped) != expected_gdp_rows || anyDuplicated(gdp_grouped[c("Scenario", "Region_group", "Category")])) {
-      stop("The GDP scenario-region-category grid is not complete and unique.")
-  }
-  gdp_contributions <- gdp_grouped %>% group_by(Region_group, Category) %>% mutate(BaU_category_value = Value[Scenario == "BaU"][[1]]) %>%
-      ungroup() %>% group_by(Region_group, Scenario) %>% mutate(BaU_total = sum(BaU_category_value), Contribution_pp = 100 *
-      (Value - BaU_category_value)/BaU_total) %>% ungroup() %>% filter(Scenario %in% c("Def", "Aid")) %>% mutate(Scenario = factor(Scenario,
-      levels = c("Def", "Aid")), Region_group = factor(Region_group, levels = gdp_group_levels), Category = factor(Category,
-      levels = gdp_category_levels))
-  gdp_totals <- gdp_contributions %>% group_by(Region_group, Scenario) %>% summarise(Scenario_total = sum(Value), BaU_total = first(BaU_total),
-      Total_change_pct = sum(Contribution_pp), .groups = "drop") %>% mutate(Direct_change_pct = 100 * (Scenario_total - BaU_total)/BaU_total,
-      Label = sprintf("%+.1f", Total_change_pct))
-  gdp_decomposition_error <- max(abs(gdp_totals$Total_change_pct - gdp_totals$Direct_change_pct))
-  if (!is.finite(gdp_decomposition_error) || gdp_decomposition_error > 1e-10) {
-      stop("GDP contributions do not reproduce the total GDP change.")
-  }
-  gdp_range <- range(c(gdp_contributions$Contribution_pp, gdp_totals$Total_change_pct))
-  gdp_label_offset <- max(0.2, 0.035 * diff(gdp_range))
-  gdp_totals <- gdp_totals %>% mutate(Label_y = Total_change_pct + if_else(Total_change_pct >= 0, gdp_label_offset, -gdp_label_offset),
-      Label_vjust = if_else(Total_change_pct >= 0, 0, 1))
-  gdp_component_colours <- c(Consumption = "#0072B2", `Government spending` = "#CC79A7", Investment = "#E69F00", `Net exports` = "#009E73")
-  p_gdp_decomposition <- ggplot(gdp_contributions, aes(x = Scenario, y = Contribution_pp, fill = Category)) + geom_hline(yintercept = 0,
-      colour = ink, linewidth = 0.35) + geom_col(width = 0.58, colour = "white", linewidth = 0.18) + geom_point(data = gdp_totals,
-      aes(x = Scenario, y = Total_change_pct, shape = "Net GDP change"), inherit.aes = FALSE, size = 2.2, stroke = 0.6, fill = "white",
-      colour = ink) + geom_text(data = gdp_totals, aes(x = Scenario, y = Label_y, label = Label, vjust = Label_vjust), inherit.aes = FALSE,
-      family = "Arial", size = 2, colour = ink) + facet_grid(. ~ Region_group) + scale_fill_manual(values = gdp_component_colours,
-      breaks = gdp_category_levels, labels = c(Consumption = "Consumption", `Government spending` = "Government", Investment = "Investment",
-          `Net exports` = "Net exports"), name = NULL) + scale_shape_manual(values = c(`Net GDP change` = 23), labels = c(`Net GDP change` = "Net GDP"),
-      name = NULL) + scale_y_continuous(name = "Contribution to GDP change relative to BaU (%)", labels = label_number(accuracy = 0.1),
-      expand = expansion(mult = c(0.14, 0.17))) + labs(x = NULL) + guides(fill = guide_legend(order = 1, nrow = 2, byrow = TRUE),
-      shape = guide_legend(order = 2)) + theme_nature() + theme(panel.grid = element_blank(), panel.border = element_rect(fill = NA,
-      colour = ink, linewidth = 0.3), axis.line = element_blank(), strip.background = element_blank(), strip.text = element_text(face = "bold",
-      size = 7), panel.spacing.x = grid::unit(3, "mm"))
-  p_efficiency_compact <- p_efficiency + guides(colour = "none")
-  p_timing_composite <- (wrap_plots(A = p_timing, B = p_cumulative_loss, C = p_efficiency_compact, design = "AAB\nCCC", heights = c(1,
-      1.08), guides = "collect") + plot_annotation(tag_levels = "a")) & theme(legend.position = "bottom", legend.box = "horizontal",
-      legend.spacing.x = grid::unit(2, "mm"), panel.border = element_rect(fill = NA, colour = ink, linewidth = 0.35), axis.line = element_blank(),
-      plot.tag = element_text(family = "Arial", face = "bold", size = 8.5, colour = ink), plot.tag.position = "topleft")
-  save_png("03_transfer_timing_consumption_loss.png", p_timing_composite, 158)
-  p_timing_consumption_gdp <- (wrap_plots(A = p_timing, B = p_cumulative_loss, C = p_cumulative_gdp, D = p_efficiency_compact,
-      E = p_gdp_decomposition, design = "AAAABBCC\nDDDDEEEE", heights = c(0.9, 1.1), guides = "collect") + plot_annotation(tag_levels = "a")) &
-      theme(legend.position = "bottom", legend.box = "horizontal", legend.justification = "center", legend.text = element_text(size = 6.5),
-          legend.key.width = grid::unit(4.5, "mm"), legend.key.height = grid::unit(3, "mm"), legend.spacing.x = grid::unit(1,
-              "mm"), panel.border = element_rect(fill = NA, colour = ink, linewidth = 0.35), axis.line = element_blank(), plot.background = element_rect(fill = "white",
-              colour = NA), plot.tag = element_text(family = "Arial", face = "bold", size = 8.5, colour = ink), plot.tag.position = "topleft")
-  environment()
-}
-
-build_six_panel_parts <- function(project_root) {
-  old_dir <- getwd()
-  on.exit(setwd(old_dir), add = TRUE)
-  setwd(project_root)
-  output_dir <- file.path(project_root, "output", "Figure")
-  csv_dir <- file.path(output_dir, "csv")
-  base_env <- build_transfer_base(project_root)
-  required_objects <- c("p_timing", "p_cumulative_loss", "p_cumulative_gdp", "p_gdp_decomposition", "theme_nature", "ink",
-      "colour_developed", "colour_developing")
-  missing_objects <- required_objects[!vapply(required_objects, exists, logical(1), envir = base_env)]
-  if (length(missing_objects)) {
-      stop("Missing plot object(s) from base script: ", paste(missing_objects, collapse = ", "))
-  }
-  theme_nature <- base_env$theme_nature
-  ink <- base_env$ink
-  colour_developed <- base_env$colour_developed
-  colour_developing <- base_env$colour_developing
-  recovery_csv <- file.path(csv_dir, "transfer_recovery_scatter_5year_source_data.csv")
-  if (!file.exists(recovery_csv)) {
-      stop("Missing transfer-recovery source data: ", recovery_csv, ". Run transfer-benefit.R first.")
-  }
+build_main_figure_3 <- function(project_root, artifact_dir = NULL) {
+  region_lookup <- tibble::tibble(
+    REMF = c(
+      "XE25", "XER", "TUR", "XOC", "CHN", "JPN", "CAN", "USA", "XLM", "CIS",
+      "IND", "BRA", "XSA", "XSE", "XME", "XNF", "XAF"
+    ),
+    Region = c(rep("Developed", 10), rep("Developing", 7))
+  )
+  model_regions <- region_lookup$REMF
+  provider_regions <- region_lookup$REMF[region_lookup$Region == "Developed"]
   plot_years <- seq(2030, 2050, by = 5)
-  recovery_data <- read.csv(recovery_csv, stringsAsFactors = FALSE) %>% filter(GDPBasis == "BaU", Year %in% plot_years, is.finite(NetTransferPct),
-      is.finite(ConsumptionChangePct)) %>% mutate(Year = factor(Year, levels = plot_years), Type = factor(Type, levels = c("Provider",
-      "Recipient")))
-  expected_recovery_rows <- length(plot_years) * 17L
-  if (nrow(recovery_data) != expected_recovery_rows || anyDuplicated(recovery_data[c("Year", "REMF")])) {
-      stop("The BaU-GDP transfer-recovery data are incomplete or duplicated.")
-  }
-  regression_lines <- recovery_data %>% group_by(Year) %>% group_modify(~{
-      model <- lm(ConsumptionChangePct ~ NetTransferPct, data = .x)
-      tibble::tibble(Intercept = unname(coef(model)[1]), Slope = unname(coef(model)[2]))
-  }) %>% ungroup() %>% filter(as.character(Year) != "2030")
-  axis_limits <- c(-50, 50)
-  axis_breaks <- seq(-50, 50, by = 10)
-  year_colours <- c(`2030` = "#4E79A7", `2035` = "#59A14F", `2040` = "#F28E2B", `2045` = "#E15759", `2050` = "#B07AA1")
-  p_recovery <- ggplot(recovery_data, aes(NetTransferPct, ConsumptionChangePct)) + geom_hline(yintercept = 0, colour = ink,
-      linewidth = 0.35) + geom_vline(xintercept = 0, colour = ink, linewidth = 0.35) + geom_abline(intercept = 0, slope = 1,
-      colour = ink, linetype = "dotted", linewidth = 0.45) + geom_abline(data = regression_lines, aes(intercept = Intercept,
-      slope = Slope, colour = Year), inherit.aes = FALSE, linewidth = 0.6, alpha = 0.58, show.legend = FALSE) + geom_point(aes(colour = Year,
-      shape = Type), size = 1.8, alpha = 0.84, stroke = 0.55) + scale_colour_manual(values = year_colours, limits = as.character(plot_years),
-      drop = FALSE, name = "Year") + scale_shape_manual(values = c(Provider = 16, Recipient = 17), name = NULL) + scale_x_continuous(breaks = axis_breaks,
-      labels = label_number(accuracy = 1, suffix = "%"), expand = expansion(mult = 0)) + scale_y_continuous(breaks = axis_breaks,
-      labels = label_number(accuracy = 1, suffix = "%"), expand = expansion(mult = 0)) + coord_fixed(ratio = 1, xlim = axis_limits,
-      ylim = axis_limits, expand = FALSE) + labs(x = "Annual transfer / BaU GDP (%)", y = "Consumption change under Aid relative to Def (%)") +
-      guides(colour = guide_legend(order = 1, nrow = 1, override.aes = list(size = 1.8, alpha = 0.84, shape = 16, linetype = 0,
-          linewidth = 0)), shape = guide_legend(order = 2, nrow = 1)) + theme_nature() + theme(panel.grid = element_blank(),
-      panel.border = element_rect(fill = NA, colour = ink, linewidth = 0.35), axis.line = element_blank(), legend.position = "bottom",
-      legend.justification = "center", legend.box.just = "center", legend.box = "vertical", legend.direction = "horizontal",
-      legend.title = element_text(size = 6.5), legend.text = element_text(size = 6.3), legend.key.width = grid::unit(4, "mm"),
-      legend.key.height = grid::unit(2.5, "mm"))
-  zero_loss_csv <- file.path(csv_dir, "Cumulative_transfer_zero_loss_2050_source_data.csv")
-  benchmark_csv <- file.path(csv_dir, "Cumulative_transfer_zero_loss_2050_benchmarks.csv")
-  if (!file.exists(zero_loss_csv) || !file.exists(benchmark_csv)) {
-      stop("Missing cumulative zero-loss source data. Run ", "Cumulative_transfer_zero_loss_2050.R first.")
-  }
-  zero_loss_data <- read.csv(zero_loss_csv, stringsAsFactors = FALSE) %>% mutate(Group = factor(Group, levels = c("Provider",
-      "Recipient")), Scenario = factor(Scenario, levels = c("Def", "Aid")))
-  benchmarks <- read.csv(benchmark_csv, stringsAsFactors = FALSE)
-  if (nrow(zero_loss_data) != 4L || anyDuplicated(zero_loss_data[c("Group", "Scenario")])) {
-      stop("The cumulative zero-loss point data are incomplete or duplicated.")
-  }
-  benchmark_value <- function(metric) {
-      value <- benchmarks$Value[benchmarks$Metric == metric]
-      if (length(value) != 1L || !is.finite(value)) {
-          stop("Missing benchmark value: ", metric)
-      }
-      value
-  }
-  actual_aid <- benchmark_value("Actual cumulative Aid transfer")
-  cge_zero <- benchmark_value("CGE-implied recipient zero-loss funding")
-  def_benchmark <- benchmark_value("Def-loss accounting benchmark")
-  funding_gap <- benchmark_value("Accounting benchmark minus CGE")
-  period_years <- 20
-  x_max <- max(actual_aid, cge_zero, def_benchmark) * 1.12
-  y_values <- zero_loss_data$CumulativeConsumptionLossRate_pct
-  y_span <- diff(range(c(y_values, 0)))
-  if (!is.finite(y_span) || y_span == 0) y_span <- 1
-  y_min <- min(y_values, 0) - 0.13 * y_span
-  y_max <- max(y_values, 0) + 0.18 * y_span
-  x_breaks <- pretty(c(0, x_max), n = 6)
-  x_breaks <- x_breaks[x_breaks >= 0 & x_breaks <= x_max]
-  benchmark_points <- tibble::tibble(Benchmark = factor(c("CGE-implied", "Def-loss benchmark"), levels = c("CGE-implied", "Def-loss benchmark")),
-      X = c(cge_zero, def_benchmark), Y = 0, Label = number(c(cge_zero, def_benchmark), accuracy = 0.1), LabelY = c(0.075 *
-          y_span, -0.1 * y_span))
-  p_zero_loss <- ggplot(zero_loss_data, aes(x = CumulativeAid_trillion_USD2010, y = CumulativeConsumptionLossRate_pct, colour = Group,
-      group = Group)) + geom_hline(yintercept = 0, colour = ink, linewidth = 0.4) + geom_vline(xintercept = 0, colour = ink,
-      linewidth = 0.4) + geom_line(linetype = "dotted", linewidth = 0.75) + geom_point(aes(shape = Scenario, fill = interaction(Group,
-      Scenario)), size = 2.75, stroke = 0.75) + geom_segment(data = tibble::tibble(x = min(cge_zero, def_benchmark), xend = max(cge_zero,
-      def_benchmark), y = 0, yend = 0), aes(x = x, xend = xend, y = y, yend = yend), inherit.aes = FALSE, colour = "#999999",
-      linewidth = 2.6, alpha = 0.35, lineend = "round") + annotate("label", x = mean(c(cge_zero, def_benchmark)), y = -0.035 *
-      y_span, label = number(funding_gap, accuracy = 0.1), size = 2.15, linewidth = 0, fill = alpha("white", 0.92), colour = "#666666") +
-      geom_point(data = benchmark_points, aes(x = X, y = Y, shape = Benchmark), inherit.aes = FALSE, size = 2.75, stroke = 0.75,
-          colour = ink, fill = "white") + geom_label(data = benchmark_points, aes(x = X, y = LabelY, label = Label), inherit.aes = FALSE,
-      size = 2.25, lineheight = 0.95, linewidth = 0, fill = alpha("white", 0.92), colour = ink) + scale_colour_manual(values = c(Provider = colour_developed,
-      Recipient = colour_developing), labels = c(Provider = "Developed", Recipient = "Developing"), name = NULL) + scale_fill_manual(values = c(Provider.Def = "white",
-      Provider.Aid = colour_developed, Recipient.Def = "white", Recipient.Aid = colour_developing), guide = "none") + scale_shape_manual(values = c(Def = 1,
-      Aid = 16, `CGE-implied` = 23, `Def-loss benchmark` = 24), breaks = c("Def", "Aid", "CGE-implied", "Def-loss benchmark"),
-      labels = c("Def", "Aid", "CGE zero loss", "Def-loss benchmark"), name = NULL) + scale_x_continuous(breaks = x_breaks,
-      labels = label_number(accuracy = 1), limits = c(0, x_max), expand = expansion(mult = c(0, 0)), sec.axis = sec_axis(~./period_years,
-          breaks = x_breaks/period_years, labels = label_number(accuracy = 0.1), name = "Average annual amount, 2030-2050\n(trillion US$2010/yr)")) +
-      scale_y_continuous(labels = label_number(accuracy = 1, suffix = "%"), limits = c(y_min, y_max), expand = expansion(mult = c(0,
-          0))) + coord_cartesian(clip = "off") + labs(x = "Cumulative transfer, 2030-2050 (trillion US$2010)", y = "Cumulative consumption loss rate in 2050") +
-      guides(colour = guide_legend(order = 1, override.aes = list(linetype = 0, size = 2.1)), shape = guide_legend(order = 2,
-          override.aes = list(colour = ink))) + theme_nature() + theme(panel.grid = element_blank(), panel.border = element_rect(fill = NA,
-      colour = ink, linewidth = 0.35), axis.line = element_blank(), legend.position = "inside", legend.position.inside = c(0.82,
-      0.76), legend.justification = c(0.5, 0.5), legend.direction = "vertical", legend.background = element_rect(fill = "white",
-      colour = NA), legend.text = element_text(size = 6.4), legend.key.height = grid::unit(2.8, "mm"), legend.key.width = grid::unit(4,
-      "mm"), axis.title.x.top = element_text(size = 7.5))
-  environment()
-}
+  ink <- "#252525"
 
-build_main_figure_3 <- function(project_root) {
-  old_dir <- getwd()
-  on.exit(setwd(old_dir), add = TRUE)
-  setwd(project_root)
-  panel_env <- build_six_panel_parts(project_root)
-  required_objects <- c("base_env", "p_recovery", "p_zero_loss", "ink")
-  missing_objects <- required_objects[!vapply(required_objects, exists, logical(1), envir = panel_env)]
-  if (length(missing_objects)) {
-      stop("Missing panel object(s): ", paste(missing_objects, collapse = ", "))
+  def_file <- file.path(project_root, "data", "All", "SSP2_400C_2030CP_NoCC_No.gdx")
+  aid_file <- file.path(project_root, "data", "All", "SSP2_400C_2030CP_15th_NoCC_No.gdx")
+  annual_years <- 2026:2050
+
+  read_annual_gdx <- function(path, scenario) {
+    message("Reading annual IAMC_template from: ", path)
+    gdxrrw::rgdx.param(path, "IAMC_template") |>
+      dplyr::transmute(
+        REMF = as.character(REMF), Variable = as.character(VEMF),
+        Year = as.integer(as.character(Y)), Value = as.numeric(IAMC_template),
+        Scenario = scenario
+      ) |>
+      dplyr::filter(
+        REMF %in% model_regions,
+        Variable %in% c("CNS", "Rev_gov_Tax_Car_Tax"),
+        Year %in% annual_years
+      )
   }
-  base_env <- panel_env$base_env
-  ink <- panel_env$ink
-  required_base_objects <- c("p_timing", "p_gdp_decomposition")
-  missing_base_objects <- required_base_objects[!vapply(required_base_objects, exists, logical(1), envir = base_env)]
-  if (length(missing_base_objects)) {
-      stop("Missing base panel object(s): ", paste(missing_base_objects, collapse = ", "))
+
+  annual_raw <- dplyr::bind_rows(
+    read_annual_gdx(def_file, "Def"),
+    read_annual_gdx(aid_file, "Aid")
+  )
+
+  annual_grid_check <- annual_raw |>
+    dplyr::count(Scenario, Variable, REMF, Year) |>
+    dplyr::filter(n != 1L)
+  if (nrow(annual_grid_check)) {
+    stop("The annual SSP2 GDX data contain missing or duplicated region-variable-year records.")
   }
-  timing_world_data <- base_env$iamc %>% dplyr::filter(VEMF == "Pol_Cos_Cns_Los_rat", SCENARIO %in% base_env$scenarios_needed,
-      REMF == "World", Year %in% base_env$model_years) %>% dplyr::mutate(Region = factor("World", levels = c("World", "Developed regions",
-      "Developing regions")), Policy = factor(ifelse(SCENARIO == base_env$scenario_def, "No transfer (Def)", "Climate finance (Aid)"),
-      levels = c("No transfer (Def)", "Climate finance (Aid)"))) %>% dplyr::rename(Consumption_loss_pct = Value)
-  if (nrow(timing_world_data) != length(base_env$model_years) * 2L || anyDuplicated(timing_world_data[c("SCENARIO", "Year")])) {
-      stop("The World timing data are incomplete or duplicated.")
+
+  annual_revenue_exact <- annual_raw |>
+    dplyr::filter(
+      Scenario == "Aid", Variable == "Rev_gov_Tax_Car_Tax", REMF %in% provider_regions
+    ) |>
+    dplyr::group_by(Year) |>
+    dplyr::summarise(Revenue_million = sum(Value), .groups = "drop")
+
+  annual_consumption_exact <- annual_raw |>
+    dplyr::filter(Variable == "CNS") |>
+    dplyr::left_join(region_lookup, by = "REMF") |>
+    dplyr::group_by(Year, Region, Scenario) |>
+    dplyr::summarise(Consumption_billion = sum(Value), .groups = "drop") |>
+    tidyr::pivot_wider(names_from = Scenario, values_from = Consumption_billion) |>
+    dplyr::transmute(
+      Year, Region,
+      Consumption_change_billion = Aid - Def
+    )
+
+  cumulative_exact <- tidyr::crossing(
+    Year = annual_years, Region = c("Developed", "Developing")
+  ) |>
+    dplyr::left_join(annual_revenue_exact, by = "Year") |>
+    dplyr::left_join(annual_consumption_exact, by = c("Year", "Region")) |>
+    dplyr::mutate(
+      Annual_revenue_trillion = Revenue_million / 1e6,
+      Annual_revenue_trillion = dplyr::if_else(
+        Region == "Developed", -Annual_revenue_trillion, Annual_revenue_trillion
+      ),
+      Annual_consumption_change_trillion = Consumption_change_billion / 1000
+    ) |>
+    dplyr::arrange(Region, Year) |>
+    dplyr::group_by(Region) |>
+    dplyr::mutate(
+      Cumulative_carbon_revenue_trillion = cumsum(Annual_revenue_trillion),
+      Cumulative_consumption_change_trillion = cumsum(Annual_consumption_change_trillion)
+    ) |>
+    dplyr::ungroup()
+
+  if (nrow(cumulative_exact) != length(annual_years) * 2L ||
+      any(!is.finite(cumulative_exact$Cumulative_carbon_revenue_trillion)) ||
+      any(!is.finite(cumulative_exact$Cumulative_consumption_change_trillion))) {
+    stop("The exact annual cumulative data are incomplete.")
   }
-  timing_data_with_world <- dplyr::bind_rows(base_env$loss_data %>% dplyr::mutate(Region = factor(as.character(Region), levels = c("World",
-      "Developed regions", "Developing regions"))), timing_world_data)
-  p_timing_world <- base_env$p_timing
-  p_timing_world$data <- timing_data_with_world
-  p_timing_world <- p_timing_world + scale_colour_manual(values = c(World = ink, `Developed regions` = base_env$colour_developed,
-      `Developing regions` = base_env$colour_developing), breaks = c("World", "Developed regions", "Developing regions"), labels = c(World = "World",
-      `Developed regions` = "Developed", `Developing regions` = "Developing"), guide = guide_legend(order = 1, title = NULL,
-      nrow = 1))
-  zero_loss_x_breaks <- panel_env$x_breaks
-  period_years <- panel_env$period_years
-  p_zero_loss_clean <- panel_env$p_zero_loss
-  if (length(p_zero_loss_clean$layers) < 8L) {
-      stop("Unexpected zero-loss panel structure; cannot remove gap annotation.")
+
+  cumulative_plot_wide <- cumulative_exact |>
+    dplyr::filter(Year %in% plot_years) |>
+    dplyr::mutate(Region = factor(Region, levels = c("Developed", "Developing"))) |>
+    dplyr::select(
+      Year, Region,
+      `Carbon-tax revenue` = Cumulative_carbon_revenue_trillion,
+      `Consumption change` = Cumulative_consumption_change_trillion
+    )
+
+  measure_colours <- c(`Carbon-tax revenue` = "#E69F00", `Consumption change` = "#0072B2")
+
+  panel_theme <- function() {
+    ggplot2::theme_classic(base_family = "Arial", base_size = 8) +
+      ggplot2::theme(
+        text = ggplot2::element_text(colour = ink),
+        panel.background = ggplot2::element_rect(fill = "white", colour = NA),
+        plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+        panel.grid = ggplot2::element_blank(),
+        axis.line = ggplot2::element_line(colour = ink, linewidth = 0.3),
+        axis.ticks = ggplot2::element_line(colour = ink, linewidth = 0.25),
+        axis.title = ggplot2::element_text(size = 8.2),
+        axis.text = ggplot2::element_text(size = 7.4, colour = ink),
+        strip.background = ggplot2::element_blank(),
+        strip.text = ggplot2::element_text(size = 7, face = "plain"),
+        legend.position = "bottom", legend.justification = "center",
+        legend.text = ggplot2::element_text(size = 7),
+        plot.margin = ggplot2::margin(4, 5, 3, 4)
+      )
   }
-  p_zero_loss_clean$layers <- p_zero_loss_clean$layers[-c(5L, 6L)]
-  world_zero_loss_data <- base_env$iamc %>% dplyr::filter(VEMF == "Pol_Cos_Cns_Los_rat_NPV_5pc", SCENARIO %in% base_env$scenarios_needed,
-      REMF == "World", Year == 2050) %>% dplyr::transmute(Group = factor("World", levels = c("World", "Provider", "Recipient")),
-      Scenario = factor(ifelse(SCENARIO == base_env$scenario_def, "Def", "Aid"), levels = c("Def", "Aid")), Region = REMF,
-      ScenarioCode = SCENARIO, CumulativeAid_trillion_USD2010 = ifelse(Scenario == "Def", 0, panel_env$actual_aid), AverageAnnualAid_trillion_USD2010_per_year = CumulativeAid_trillion_USD2010/period_years,
-      CumulativeConsumptionLossRate_pct = Value)
-  if (nrow(world_zero_loss_data) != 2L || anyDuplicated(world_zero_loss_data["Scenario"])) {
-      stop("The World cumulative-loss data are incomplete or duplicated.")
-  }
-  zero_loss_data_with_world <- dplyr::bind_rows(panel_env$zero_loss_data %>% dplyr::mutate(Group = factor(as.character(Group),
-      levels = c("World", "Provider", "Recipient"))), world_zero_loss_data)
-  p_zero_loss_clean$data <- zero_loss_data_with_world
-  p_zero_loss_clean$layers[[3L]]$data <- zero_loss_data_with_world %>% dplyr::filter(Group != "World")
-  zero_loss_y_values <- zero_loss_data_with_world$CumulativeConsumptionLossRate_pct
-  zero_loss_y_span <- diff(range(c(zero_loss_y_values, 0)))
-  if (!is.finite(zero_loss_y_span) || zero_loss_y_span == 0) zero_loss_y_span <- 1
-  zero_loss_y_min <- min(zero_loss_y_values, 0) - 0.13 * zero_loss_y_span
-  zero_loss_y_max <- max(zero_loss_y_values, 0) + 0.18 * zero_loss_y_span
-  p_zero_loss_bottom <- p_zero_loss_clean + scale_colour_manual(values = c(World = ink, Provider = base_env$colour_developed,
-      Recipient = base_env$colour_developing), breaks = c("World", "Provider", "Recipient"), labels = c(World = "World", Provider = "Developed",
-      Recipient = "Developing"), name = NULL) + scale_fill_manual(values = c(World.Def = "white", World.Aid = ink, Provider.Def = "white",
-      Provider.Aid = base_env$colour_developed, Recipient.Def = "white", Recipient.Aid = base_env$colour_developing), guide = "none") +
-      scale_x_continuous(breaks = zero_loss_x_breaks, labels = scales::label_number(accuracy = 1), limits = c(0, panel_env$x_max),
-          expand = expansion(mult = c(0, 0)), sec.axis = dup_axis(breaks = zero_loss_x_breaks, labels = scales::label_number(accuracy = 0.1,
-              scale = 1/period_years), name = "Average annual amount, 2030-2050\n(trillion US$2010/yr)")) + scale_y_continuous(labels = scales::label_number(accuracy = 1,
-      suffix = "%"), limits = c(zero_loss_y_min, zero_loss_y_max), expand = expansion(mult = c(0, 0))) + labs(y = "Cumulative consumption loss rate in 2050 (%)") +
-      guides(colour = guide_legend(order = 1, nrow = 1, override.aes = list(linetype = 0, size = 2.1)), shape = guide_legend(order = 2,
-          nrow = 1, override.aes = list(colour = ink))) + theme(panel.background = element_rect(fill = "white", colour = NA),
-      panel.grid = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
-      panel.grid.major.y = element_blank(), legend.position = "bottom", legend.justification = "center", legend.direction = "horizontal",
-      legend.box = "vertical", legend.box.just = "center", legend.background = element_blank(), legend.margin = margin(t = 1,
-          r = 0, b = 0, l = 0), legend.spacing.y = grid::unit(0.4, "mm"), legend.key.height = grid::unit(2.8, "mm"), legend.key.width = grid::unit(4,
-          "mm"))
-  p_recovery_plain_axes <- panel_env$p_recovery + scale_x_continuous(breaks = panel_env$axis_breaks, labels = scales::label_number(accuracy = 1),
-      expand = expansion(mult = 0)) + scale_y_continuous(breaks = panel_env$axis_breaks, labels = scales::label_number(accuracy = 1),
-      expand = expansion(mult = 0)) + scale_shape_manual(values = c(Provider = 16, Recipient = 17), breaks = c("Provider",
-      "Recipient"), labels = c(Provider = "Developed", Recipient = "Developing"), name = NULL) + labs(x = "Annual transfer / GDP (%)",
-      y = "Consumption change under\nAid relative to Def (%)") + theme(panel.background = element_rect(fill = "white", colour = NA),
-      panel.grid = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.grid.major.x = element_blank(),
-      panel.grid.major.y = element_blank(), plot.tag.position = c(0.14, 0.99))
-  p_gdp_decomposition_compact <- base_env$p_gdp_decomposition + scale_y_continuous(name = "Contribution to GDP change\nrelative to BaU in 2050 (%)",
-      labels = scales::label_number(accuracy = 0.1), expand = expansion(mult = c(0.14, 0.17))) + scale_shape_manual(values = c(`Net GDP change` = 23),
-      labels = c(`Net GDP change` = "Net GDP change"), name = NULL) + guides(fill = guide_legend(order = 1, nrow = 2, byrow = TRUE),
-      shape = guide_legend(order = 2, nrow = 1)) + theme(legend.position = "bottom", legend.justification = "center", legend.box.just = "center",
-      legend.box = "vertical", legend.text = element_text(size = 6.4), legend.key.width = grid::unit(4.5, "mm"), legend.key.height = grid::unit(2.8,
-          "mm"), legend.margin = margin(t = 1, r = 0, b = 0, l = 0), strip.text = element_text(face = "plain", size = 7))
-  p_four_panel <- (patchwork::wrap_plots(A = p_timing_world, B = p_recovery_plain_axes, C = patchwork::free(p_zero_loss_bottom,
-      side = "t"), D = p_gdp_decomposition_compact, design = "AAAAABBBBB\nCCCCCCDDDD", heights = c(1, 1), guides = "keep") +
-      patchwork::plot_annotation(tag_levels = "a")) & theme(plot.background = element_rect(fill = "white", colour = NA), plot.tag = element_text(family = "Arial",
-      face = "bold", size = 8.5, colour = ink))
-  p_four_panel
+
+  # Rebuild panels a, b and d by aggregating the mutually exclusive R17 regions.
+  scenario_codes <- c(
+    BaU = "SSP2_BaU_NoCC_No",
+    Def = "SSP2_400C_2030CP_NoCC_No",
+    Aid = "SSP2_400C_2030CP_15th_NoCC_No"
+  )
+  global_file <- file.path(project_root, "data", "All", "global_17_IAMC.gdx")
+  message("Reading five-year panel data from: ", global_file)
+  global_raw <- gdxrrw::rgdx.param(global_file, "IAMC_template") |>
+    dplyr::transmute(
+      Scenario_code = as.character(SCENARIO), REMF = as.character(REMF),
+      Variable = as.character(VEMF), Year = as.numeric(as.character(YEMF)),
+      Value = as.numeric(IAMC_Template)
+    ) |>
+    dplyr::filter(
+      Scenario_code %in% scenario_codes,
+      REMF %in% model_regions,
+      Variable %in% c("CNS", "Trd_Goo_Val", "Rev_gov_Tax_Car_Tax"),
+      Year %in% plot_years
+    )
+
+  consumption_regions <- global_raw |>
+    dplyr::filter(Variable == "CNS") |>
+    dplyr::left_join(region_lookup, by = "REMF") |>
+    dplyr::group_by(Scenario_code, Region, Year) |>
+    dplyr::summarise(Consumption_trillion = sum(Value) / 1000, .groups = "drop")
+
+  bau_consumption <- consumption_regions |>
+    dplyr::filter(Scenario_code == scenario_codes[["BaU"]]) |>
+    dplyr::select(Region, Year, BaU_consumption_trillion = Consumption_trillion)
+
+  consumption_change_data <- consumption_regions |>
+    dplyr::filter(Scenario_code %in% scenario_codes[c("Def", "Aid")]) |>
+    dplyr::left_join(bau_consumption, by = c("Region", "Year")) |>
+    dplyr::transmute(
+      Year = factor(Year, levels = plot_years),
+      Region = factor(Region, levels = c("Developed", "Developing")),
+      Policy = factor(names(scenario_codes)[match(Scenario_code, scenario_codes)], levels = c("Def", "Aid")),
+      Consumption_change_trillion = Consumption_trillion - BaU_consumption_trillion
+    )
+
+  world_consumption_change <- consumption_change_data |>
+    dplyr::group_by(Year, Policy) |>
+    dplyr::summarise(World_net_change_trillion = sum(Consumption_change_trillion), .groups = "drop")
+  region_colours <- c(Developed = "#3F6C8E", Developing = "#B6573F")
+
+  p_a <- ggplot2::ggplot(consumption_change_data, ggplot2::aes(Year, Consumption_change_trillion, fill = Region)) +
+    ggplot2::geom_hline(yintercept = 0, colour = ink, linewidth = 0.35) +
+    ggplot2::geom_col(width = 0.68) +
+    ggplot2::geom_line(
+      data = world_consumption_change,
+      ggplot2::aes(Year, World_net_change_trillion, group = 1, linetype = "World"),
+      inherit.aes = FALSE, colour = ink, linewidth = 0.62
+    ) +
+    ggplot2::geom_point(
+      data = world_consumption_change,
+      ggplot2::aes(Year, World_net_change_trillion, shape = "World"),
+      inherit.aes = FALSE, colour = ink, fill = "white", size = 2, stroke = 0.65
+    ) +
+    ggplot2::facet_grid(Policy ~ .) +
+    ggplot2::scale_fill_manual(values = region_colours, name = NULL) +
+    ggplot2::scale_linetype_manual(values = c(World = "solid"), name = NULL) +
+    ggplot2::scale_shape_manual(values = c(World = 21), name = NULL) +
+    ggplot2::scale_y_continuous(labels = scales::label_number(accuracy = 1), expand = ggplot2::expansion(mult = c(0.08, 0.1))) +
+    ggplot2::labs(x = NULL, y = "Annual consumption change relative to BaU\n(trillion US$2010/yr)") +
+    ggplot2::guides(
+      fill = ggplot2::guide_legend(order = 1, nrow = 1),
+      linetype = ggplot2::guide_legend(order = 2, nrow = 1),
+      shape = ggplot2::guide_legend(order = 2, nrow = 1)
+    ) + panel_theme() +
+    ggplot2::theme(
+      legend.box = "vertical", legend.direction = "horizontal",
+      legend.text = ggplot2::element_text(size = 6.2),
+      legend.title = ggplot2::element_text(size = 6.2),
+      legend.key.width = grid::unit(3.5, "mm"),
+      legend.key.height = grid::unit(2.7, "mm"),
+      legend.spacing.y = grid::unit(0.3, "mm")
+    )
+
+  annual_transfer <- global_raw |>
+    dplyr::filter(
+      Variable == "Rev_gov_Tax_Car_Tax", Scenario_code == scenario_codes[["Aid"]],
+      REMF %in% provider_regions
+    ) |>
+    dplyr::group_by(Year) |>
+    dplyr::summarise(Annual_transfer_trillion = sum(Value) / 1e6, .groups = "drop")
+
+  annual_consumption_change <- global_raw |>
+    dplyr::filter(Variable == "CNS", Scenario_code %in% scenario_codes[c("Def", "Aid")]) |>
+    dplyr::left_join(region_lookup, by = "REMF") |>
+    dplyr::group_by(Year, Region, Scenario_code) |>
+    dplyr::summarise(Consumption_billion = sum(Value), .groups = "drop") |>
+    tidyr::pivot_wider(names_from = Scenario_code, values_from = Consumption_billion) |>
+    dplyr::transmute(
+      Year, Region,
+      Consumption_change_trillion =
+        (.data[[scenario_codes[["Aid"]]]] - .data[[scenario_codes[["Def"]]]]) / 1000
+    )
+
+  annual_two_region_data <- tidyr::crossing(Year = plot_years, Region = c("Developed", "Developing")) |>
+    dplyr::left_join(annual_transfer, by = "Year") |>
+    dplyr::left_join(annual_consumption_change, by = c("Year", "Region")) |>
+    dplyr::mutate(
+      Annual_transfer_trillion = dplyr::if_else(
+        Region == "Developed", -Annual_transfer_trillion, Annual_transfer_trillion
+      ),
+      Year = factor(Year, levels = plot_years),
+      Region = factor(Region, levels = c("Developed", "Developing"))
+    )
+
+  annual_lines <- annual_two_region_data |>
+    dplyr::group_by(Year) |>
+    dplyr::summarise(
+      Slope = diff(Consumption_change_trillion) / diff(Annual_transfer_trillion),
+      Intercept = dplyr::first(Consumption_change_trillion) - Slope * dplyr::first(Annual_transfer_trillion),
+      .groups = "drop"
+    ) |>
+    dplyr::filter(as.character(Year) != "2030")
+
+  annual_axis_step <- 2
+  annual_axis_limit <- annual_axis_step * ceiling(max(abs(c(
+    annual_two_region_data$Annual_transfer_trillion,
+    annual_two_region_data$Consumption_change_trillion
+  ))) / annual_axis_step)
+  annual_axis_breaks <- seq(-annual_axis_limit, annual_axis_limit, by = annual_axis_step)
+  year_colours <- c(`2030` = "#4E79A7", `2035` = "#59A14F", `2040` = "#F28E2B", `2045` = "#E15759", `2050` = "#B07AA1")
+
+  p_b <- ggplot2::ggplot(annual_two_region_data, ggplot2::aes(Annual_transfer_trillion, Consumption_change_trillion)) +
+    ggplot2::geom_hline(yintercept = 0, colour = ink, linewidth = 0.35) +
+    ggplot2::geom_vline(xintercept = 0, colour = ink, linewidth = 0.35) +
+    ggplot2::geom_abline(intercept = 0, slope = 1, colour = ink, linetype = "dotted", linewidth = 0.45) +
+    ggplot2::geom_abline(
+      data = annual_lines, ggplot2::aes(intercept = Intercept, slope = Slope, colour = Year),
+      linewidth = 0.58, alpha = 0.42, show.legend = FALSE
+    ) +
+    ggplot2::geom_point(ggplot2::aes(colour = Year, shape = Region), size = 2.8, alpha = 0.92, stroke = 0.7) +
+    ggplot2::scale_colour_manual(values = year_colours, limits = as.character(plot_years), name = "Year") +
+    ggplot2::scale_shape_manual(values = c(Developed = 16, Developing = 17), name = NULL) +
+    ggplot2::scale_x_continuous(breaks = annual_axis_breaks, labels = scales::label_number(accuracy = 1), expand = ggplot2::expansion(mult = 0)) +
+    ggplot2::scale_y_continuous(breaks = annual_axis_breaks, labels = scales::label_number(accuracy = 1), expand = ggplot2::expansion(mult = 0)) +
+    ggplot2::coord_fixed(
+      ratio = 1, xlim = c(-annual_axis_limit, annual_axis_limit),
+      ylim = c(-annual_axis_limit, annual_axis_limit), expand = FALSE
+    ) +
+    ggplot2::labs(
+      x = "Annual transfer (trillion US$2010/yr)",
+      y = "Consumption expenditure change under\nAid relative to Def (trillion US$2010/yr)"
+    ) +
+    ggplot2::guides(
+      colour = ggplot2::guide_legend(order = 1, nrow = 1, override.aes = list(size = 2.3, shape = 16, linetype = 0)),
+      shape = ggplot2::guide_legend(order = 2, nrow = 1)
+    ) + panel_theme() +
+    ggplot2::theme(
+      legend.box = "vertical", legend.direction = "horizontal",
+      legend.text = ggplot2::element_text(size = 6.2),
+      legend.key.width = grid::unit(4, "mm"),
+      legend.key.height = grid::unit(2.7, "mm"),
+      legend.spacing.y = grid::unit(0.3, "mm")
+    )
+
+  economic_change_data <- global_raw |>
+    dplyr::filter(
+      Variable %in% c("CNS", "Trd_Goo_Val"),
+      Scenario_code %in% scenario_codes[c("Def", "Aid")]
+    ) |>
+    dplyr::left_join(region_lookup, by = "REMF") |>
+    dplyr::group_by(Year, Region, Variable, Scenario_code) |>
+    dplyr::summarise(Value_billion = sum(Value), .groups = "drop") |>
+    tidyr::pivot_wider(names_from = Scenario_code, values_from = Value_billion) |>
+    dplyr::transmute(
+      Year, Region,
+      Component = dplyr::recode(Variable, CNS = "Consumption", Trd_Goo_Val = "Net exports"),
+      Change_trillion = (.data[[scenario_codes[["Aid"]]]] - .data[[scenario_codes[["Def"]]]]) / 1000
+    )
+
+  transfer_change_data <- tidyr::crossing(Year = plot_years, Region = c("Developed", "Developing")) |>
+    dplyr::left_join(annual_transfer, by = "Year") |>
+    dplyr::transmute(
+      Year, Region, Component = "Transferred funds",
+      Change_trillion = dplyr::if_else(Region == "Developed", -Annual_transfer_trillion, Annual_transfer_trillion)
+    )
+
+  d_data <- dplyr::bind_rows(economic_change_data, transfer_change_data) |>
+    dplyr::mutate(
+      Year = factor(Year, levels = plot_years),
+      Region = factor(Region, levels = c("Developed", "Developing")),
+      Component = factor(Component, levels = c("Consumption", "Net exports", "Transferred funds"))
+    )
+  d_totals <- d_data |>
+    dplyr::group_by(Year, Region) |>
+    dplyr::summarise(Total_change_trillion = sum(Change_trillion), .groups = "drop")
+
+  p_d <- ggplot2::ggplot(d_data, ggplot2::aes(Year, Change_trillion, fill = Component)) +
+    ggplot2::geom_hline(yintercept = 0, colour = ink, linewidth = 0.35) +
+    ggplot2::geom_col(width = 0.68, colour = "white", linewidth = 0.15) +
+    ggplot2::geom_point(
+      data = d_totals, ggplot2::aes(Year, Total_change_trillion, shape = "Sum of components"),
+      inherit.aes = FALSE, size = 1.9, stroke = 0.55, fill = "white", colour = ink
+    ) +
+    ggplot2::facet_grid(
+      . ~ Region,
+      labeller = ggplot2::as_labeller(c(Developed = "Developed regions", Developing = "Developing regions"))
+    ) +
+    ggplot2::scale_fill_manual(
+      values = c(Consumption = "#0072B2", `Net exports` = "#009E73", `Transferred funds` = "#E69F00"), name = NULL
+    ) +
+    ggplot2::scale_shape_manual(values = c(`Sum of components` = 23), name = NULL) +
+    ggplot2::scale_x_discrete(breaks = c("2030", "2040", "2050")) +
+    ggplot2::scale_y_continuous(labels = scales::label_number(accuracy = 1), expand = ggplot2::expansion(mult = c(0.12, 0.14))) +
+    ggplot2::labs(x = NULL, y = "Annual change under Aid relative to Def\n(trillion US$2010/yr)") +
+    ggplot2::guides(
+      fill = ggplot2::guide_legend(order = 1, nrow = 2, byrow = TRUE),
+      shape = ggplot2::guide_legend(order = 2, nrow = 1)
+    ) + panel_theme() +
+    ggplot2::theme(
+      legend.box = "vertical", legend.direction = "horizontal",
+      legend.text = ggplot2::element_text(size = 6.1),
+      legend.key.width = grid::unit(3.8, "mm"),
+      legend.key.height = grid::unit(2.6, "mm"),
+      legend.spacing.y = grid::unit(0.25, "mm")
+    )
+
+  c_bar_data <- cumulative_plot_wide |>
+    dplyr::filter(Year == 2050) |>
+    tidyr::pivot_longer(
+      cols = c("Carbon-tax revenue", "Consumption change"),
+      names_to = "Measure", values_to = "Value_trillion"
+    ) |>
+    dplyr::mutate(
+      Region = factor(Region, levels = c("Developed", "Developing")),
+      Measure = factor(Measure, levels = c("Carbon-tax revenue", "Consumption change")),
+      Label = sprintf("%+.1f", Value_trillion)
+    )
+
+  p_c_bar <- ggplot2::ggplot(c_bar_data, ggplot2::aes(Region, Value_trillion, fill = Measure)) +
+    ggplot2::geom_hline(yintercept = 0, colour = ink, linewidth = 0.35) +
+    ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.78), width = 0.7) +
+    ggplot2::geom_text(
+      ggplot2::aes(label = Label, group = Measure),
+      position = ggplot2::position_dodge(width = 0.78),
+      vjust = dplyr::if_else(c_bar_data$Value_trillion >= 0, -0.45, 1.35),
+      family = "Arial", size = 2.35, colour = ink
+    ) +
+    ggplot2::scale_fill_manual(values = measure_colours, name = NULL) +
+    ggplot2::scale_x_discrete(labels = c(Developed = "Developed regions", Developing = "Developing regions")) +
+    ggplot2::scale_y_continuous(labels = scales::label_number(accuracy = 1), expand = ggplot2::expansion(mult = c(0.12, 0.14))) +
+    ggplot2::labs(
+      x = NULL,
+      y = "Cumulative amount, 2026-2050\n(trillion US$2010; undiscounted)"
+    ) + panel_theme() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(face = "bold"))
+
+  figure_composite <- (
+    patchwork::wrap_plots(
+      A = p_a, B = p_b, C = p_c_bar, D = p_d,
+      design = "AAAAABBBBB\nCCCCCDDDDD", heights = c(1, 1), guides = "keep"
+    ) + patchwork::plot_annotation(tag_levels = "a")
+  ) & ggplot2::theme(
+    plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+    plot.tag = ggplot2::element_text(family = "Arial", face = "bold", size = 8.5, colour = ink)
+  )
+  figure_composite
 }
 
 build_main_figure_4 <- function(project_root) {
@@ -1547,9 +848,6 @@ build_main_figure_4 <- function(project_root) {
   if (!length(gams_candidates)) stop("A GAMS system directory was not found.")
   igdx(gams_candidates[[1]])
   gdx_file <- file.path(project_root, "data", "All", "AnalysisExpenditure.gdx")
-  output_dir <- file.path(project_root, "output", "Figure", "analysis")
-  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  output_file <- file.path(output_dir, "04b_poverty_inequality_welfare_detailed_expenditure_2020_2050.png")
   scenario_codes <- c(BaU = "SSP2_BaU_NoCC_No", Def = "SSP2_400C_2030CP_NoCC_No", Aid = "SSP2_400C_2030CP_15th_NoCC_No")
   scenario_levels <- names(scenario_codes)
   years <- c(2020, 2030, 2040, 2050)
@@ -1736,9 +1034,7 @@ build_main_figure_4 <- function(project_root) {
 
 generate_main_figures <- function(project_root, output_dirs) {
   save_figure_pair(build_main_figure_2(project_root), "Fig2_Emission_CP_revenue_flow_composite", 195, 232, output_dirs)
-  prepare_transfer_benefit(project_root)
-  prepare_zero_loss(project_root)
-  save_figure_pair(build_main_figure_3(project_root), "Fig3_transfer_timing_recovery_zero_loss_gdp_four_panel", 180, 174, output_dirs)
+  save_figure_pair(build_main_figure_3(project_root), "Fig3_annual_exact_composite", 180, 174, output_dirs)
   save_figure_pair(build_main_figure_4(project_root), "Fig4_poverty_inequality_welfare_detailed_expenditure_2020_2050", 180, 202, output_dirs)
   invisible(NULL)
 }

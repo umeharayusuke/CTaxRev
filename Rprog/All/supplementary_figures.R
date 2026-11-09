@@ -179,7 +179,7 @@ build_supplementary_figure_2 <- function(project_root) {
   variables_needed <- c("Emi_CO2", "CNS", "GDP_MER", "Prc_Car", "Pol_Cos_Cns_Los", "Pol_Cos_Cns_Los_rat", "Pol_Cos_Cns_Los_rat_NPV_5pc",
       "Pol_Cos_GDP_Los_rat_NPV_5pc", "Rev_gov_Tax_Car_Tax")
   gdx_file <- file.path(project_root, "data", "All", "global_17_IAMC.gdx")
-  output_dir <- file.path(project_root, "output", "Figure", "analysis")
+  output_dir <- tempdir()
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   legacy_efficiency_png <- file.path(output_dir, "02_transfer_efficiency_2050.png")
   if (file.exists(legacy_efficiency_png)) unlink(legacy_efficiency_png)
@@ -427,7 +427,7 @@ build_supplementary_figure_3 <- function(project_root) {
   if (!length(gams_candidates)) stop("A GAMS system directory was not found.")
   igdx(gams_candidates[[1]])
   gdx_file <- file.path(project_root, "data", "All", "global_17_IAMC.gdx")
-  output_dir <- file.path(project_root, "output", "Figure")
+  output_dir <- tempdir()
   csv_dir <- file.path(output_dir, "csv")
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   dir.create(csv_dir, recursive = TRUE, showWarnings = FALSE)
@@ -655,146 +655,8 @@ build_supplementary_figure_4 <- function(project_root) {
   apply_ncc_theme(p_si)
 }
 
+
 build_supplementary_figure_5 <- function(project_root) {
-  old_dir <- getwd()
-  on.exit(setwd(old_dir), add = TRUE)
-  setwd(project_root)
-
-  find_project_root <- function(start) {
-      current <- normalizePath(start, winslash = "/", mustWork = TRUE)
-      repeat {
-          marker <- file.path(current, "data", "All", "AnalysisExpenditure.gdx")
-          if (file.exists(marker))
-              return(current)
-          parent <- dirname(current)
-          if (identical(parent, current))
-              break
-          current <- parent
-      }
-      NA
-  }
-  script_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
-  script_dir <- if (length(script_arg)) {
-      dirname(normalizePath(sub("^--file=", "", script_arg[[1]]), winslash = "/"))
-  } else {
-      getwd()
-  }
-  project_root <- find_project_root(getwd())
-  if (is.na(project_root)) project_root <- find_project_root(script_dir)
-  if (is.na(project_root)) stop("Could not locate the project root.")
-  library_candidates <- c(Sys.getenv("R_LIBS_USER"), file.path(project_root, "Rlib"), "C:/ENVI5809/R_library", "C:/Users/umeha/AppData/Local/R/win-library/4.5")
-  library_candidates <- unique(library_candidates[nzchar(library_candidates) & dir.exists(library_candidates)])
-  .libPaths(unique(c(library_candidates, .libPaths())))
-  suppressPackageStartupMessages({
-      library(dplyr)
-      library(tidyr)
-      library(ggplot2)
-      library(scales)
-      library(gdxrrw)
-  })
-  gams_candidates <- c(Sys.getenv("GAMS_SYSDIR", unset = ""), "C:/GAMS/34", "C:/GAMS/win64/26.1")
-  gams_candidates <- unique(gams_candidates[nzchar(gams_candidates) & dir.exists(gams_candidates)])
-  if (!length(gams_candidates)) stop("A GAMS system directory was not found.")
-  igdx(gams_candidates[[1]])
-  gdx_file <- file.path(project_root, "data", "All", "AnalysisExpenditure.gdx")
-  output_dir <- file.path(project_root, "output", "Figure", "analysis")
-  dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  output_stem <- file.path(output_dir, "13_SSP2_additional_poverty_all_lines_2050")
-  comparison_year <- 2050
-  policy_levels <- c("BaU", "Default", "10th", "15th", "20th")
-  scenario_codes <- c(BaU = "SSP2_BaU_NoCC_No", Default = "SSP2_400C_2030CP_NoCC_No", `10th` = "SSP2_400C_2030CP_10th_NoCC_No",
-      `15th` = "SSP2_400C_2030CP_15th_NoCC_No", `20th` = "SSP2_400C_2030CP_20th_NoCC_No")
-  policy_labels <- c(BaU = "BaU", Default = "Default", `10th` = "10k", `15th` = "15k", `20th` = "20k")
-  r5_codes <- c("R5OECD90+EU", "R5REF", "R5ASIA", "R5MAF", "R5LAM")
-  r5_labels <- c(`R5OECD90+EU` = "OECD90 + EU", R5REF = "Reforming economies", R5ASIA = "Asia", R5MAF = "Middle East & Africa",
-      R5LAM = "Latin America")
-  r5_colours <- c(`OECD90 + EU` = "#4E79A7", `Reforming economies` = "#8E6C8A", Asia = "#E5A03E", `Middle East & Africa` = "#59A14F",
-      `Latin America` = "#D3725B")
-  ink <- "#252525"
-  check_grid <- function(data, expected, keys, context) {
-      if (anyDuplicated(as.data.frame(data[keys]))) {
-          stop("Duplicate records in ", context, ".")
-      }
-      missing <- anti_join(expected, data, by = keys)
-      if (nrow(missing)) {
-          stop("Missing ", nrow(missing), " records in ", context, "; first: ", paste(unlist(missing[1, ]), collapse = " / "))
-      }
-  }
-  message("Reading PoVExp from: ", gdx_file)
-  poverty_raw <- rgdx.param(gdx_file, "PoVExp") %>% transmute(Scenario_id = as.character(Ref), Region_code = as.character(R),
-      Year = as.numeric(as.character(Y)), Threshold = as.character(TH), People = as.numeric(PoVExp)) %>% filter(Scenario_id %in%
-      unname(scenario_codes), Region_code %in% c("WLD", r5_codes), Year == comparison_year)
-  threshold_coverage <- poverty_raw %>% distinct(Scenario_id, Threshold) %>% count(Threshold, name = "Scenario_count") %>%
-      filter(Scenario_count == length(scenario_codes)) %>% mutate(Threshold_value = suppressWarnings(as.numeric(sub("^pop_",
-      "", Threshold))))
-  if (!nrow(threshold_coverage)) {
-      stop("No poverty line is common to all selected SSP2 scenarios.")
-  }
-  if (any(!is.finite(threshold_coverage$Threshold_value))) {
-      stop("Could not parse numeric poverty thresholds: ", paste(threshold_coverage$Threshold[!is.finite(threshold_coverage$Threshold_value)],
-          collapse = ", "))
-  }
-  threshold_coverage <- threshold_coverage %>% arrange(Threshold_value)
-  threshold_levels <- threshold_coverage$Threshold
-  threshold_labels <- setNames(paste0("US$", sprintf("%.2f", threshold_coverage$Threshold_value), "/day"), threshold_levels)
-  poverty <- poverty_raw %>% filter(Threshold %in% threshold_levels) %>% mutate(Policy = names(scenario_codes)[match(Scenario_id,
-      scenario_codes)])
-  expected <- crossing(Scenario_id = unname(scenario_codes), Region_code = c("WLD", r5_codes), Threshold = threshold_levels,
-      Year = comparison_year)
-  check_grid(poverty, expected, c("Scenario_id", "Region_code", "Threshold", "Year"), "2050 SSP2 poverty headcounts")
-  if (nrow(poverty) != nrow(expected) || any(!is.finite(poverty$People) | poverty$People < 0)) {
-      stop("Poverty headcounts are incomplete, non-finite, or negative.")
-  }
-  r5_world_check <- poverty %>% filter(Region_code %in% r5_codes) %>% group_by(Scenario_id, Threshold, Year) %>% summarise(R5_total = sum(People),
-      .groups = "drop") %>% left_join(poverty %>% filter(Region_code == "WLD") %>% select(Scenario_id, Threshold, Year, World_total = People),
-      by = c("Scenario_id", "Threshold", "Year"))
-  maximum_r5_gap <- max(abs(r5_world_check$R5_total - r5_world_check$World_total))
-  if (!is.finite(maximum_r5_gap) || maximum_r5_gap > 1) {
-      stop("R5 totals do not reproduce the World poverty headcount.")
-  }
-  r5_baseline <- poverty %>% filter(Region_code %in% r5_codes, Policy == "BaU") %>% select(Region_code, Threshold, BaU_people = People)
-  plot_data <- poverty %>% filter(Region_code %in% r5_codes) %>% left_join(r5_baseline, by = c("Region_code", "Threshold")) %>%
-      mutate(Additional_million = (People - BaU_people)/1e+06, Policy = factor(Policy, levels = policy_levels), Threshold = factor(Threshold,
-          levels = threshold_levels), R5_region = factor(unname(r5_labels[Region_code]), levels = unname(r5_labels[r5_codes])))
-  if (any(!is.finite(plot_data$Additional_million))) {
-      stop("Additional-poverty values are non-finite.")
-  }
-  additional_world_check <- plot_data %>% group_by(Policy, Threshold) %>% summarise(R5_additional_million = sum(Additional_million),
-      .groups = "drop") %>% left_join(poverty %>% filter(Region_code == "WLD") %>% select(Policy, Threshold, People) %>% left_join(poverty %>%
-      filter(Region_code == "WLD", Policy == "BaU") %>% select(Threshold, BaU_world = People), by = "Threshold") %>% transmute(Policy = factor(Policy,
-      levels = policy_levels), Threshold = factor(Threshold, levels = threshold_levels), World_additional_million = (People -
-      BaU_world)/1e+06), by = c("Policy", "Threshold"))
-  maximum_additional_gap <- max(abs(additional_world_check$R5_additional_million - additional_world_check$World_additional_million))
-  if (!is.finite(maximum_additional_gap) || maximum_additional_gap > 1e-06) {
-      stop("R5 stacked differences do not reproduce the World difference.")
-  }
-  write.csv(plot_data %>% mutate(Policy = as.character(Policy), Threshold = as.character(Threshold), R5_region = as.character(R5_region)) %>%
-      select(Scenario_id, Policy, Threshold, Region_code, R5_region, People, BaU_people, Additional_million), paste0(output_stem,
-      "_data.csv"), row.names = FALSE)
-  theme_nature <- function() {
-      theme_classic(base_family = "Arial", base_size = 8) + theme(text = element_text(colour = ink), axis.title = element_text(size = 8.2),
-          axis.text = element_text(size = 7.2, colour = ink), axis.ticks = element_line(colour = ink, linewidth = 0.24), axis.ticks.length = grid::unit(1.1,
-              "mm"), axis.line = element_blank(), panel.border = element_rect(fill = NA, colour = ink, linewidth = 0.32), panel.grid.major.y = element_line(colour = "#E2E2E2",
-              linewidth = 0.22), panel.grid.minor = element_blank(), panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "white", colour = NA), strip.background = element_blank(), strip.text = element_text(size = 8.1,
-              face = "bold", margin = margin(b = 1.5)), panel.spacing.x = grid::unit(3, "mm"), panel.spacing.y = grid::unit(4,
-              "mm"), legend.position = "bottom", legend.justification = "center", legend.title = element_text(size = 7.2, face = "plain"),
-          legend.text = element_text(size = 6.9), legend.key.height = grid::unit(3.4, "mm"), legend.key.width = grid::unit(5.5,
-              "mm"), plot.margin = margin(4, 5, 3, 4, unit = "mm"))
-  }
-  p <- ggplot(plot_data, aes(x = Policy, y = Additional_million, fill = R5_region)) + geom_hline(yintercept = 0, colour = ink,
-      linewidth = 0.32) + geom_col(width = 0.68, colour = "white", linewidth = 0.16) + facet_wrap(~Threshold, ncol = min(3L,
-      length(threshold_levels)), labeller = as_labeller(threshold_labels), drop = FALSE) + scale_x_discrete(labels = policy_labels,
-      drop = FALSE) + scale_fill_manual(values = r5_colours, breaks = unname(r5_labels[r5_codes]), drop = FALSE, guide = guide_legend(title = "R5 region",
-      nrow = 2, byrow = TRUE)) + scale_y_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.1, 0.14))) +
-      labs(x = NULL, y = "Additional population relative to BaU in 2050 (million)") + theme_nature() + theme(axis.text.x = element_text(angle = 30,
-      hjust = 1, vjust = 1), legend.box = "horizontal")
-  number_of_rows <- ceiling(length(threshold_levels)/3)
-  figure_height <- if (number_of_rows <= 1) 92 else 74 + 48 * number_of_rows
-  list(plot = apply_ncc_theme(p), height = figure_height)
-}
-
-build_supplementary_figure_6 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -894,7 +756,7 @@ build_supplementary_figure_6 <- function(project_root) {
   apply_ncc_theme(p)
 }
 
-build_supplementary_figure_7 <- function(project_root) {
+build_supplementary_figure_6 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -1055,7 +917,7 @@ build_supplementary_figure_7 <- function(project_root) {
                    plot.tag.position = c(0, 1), plot.background = ggplot2::element_rect(fill = "white", colour = NA))
 }
 
-build_supplementary_figure_8 <- function(project_root) {
+build_supplementary_figure_7 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -1183,7 +1045,7 @@ build_supplementary_figure_8 <- function(project_root) {
   apply_ncc_theme(p)
 }
 
-build_supplementary_figure_9 <- function(project_root) {
+build_supplementary_figure_8 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -1234,10 +1096,25 @@ build_supplementary_figure_9 <- function(project_root) {
       paste0(SSP, "_BaU_NoCC_No"), Policy == "Default" ~ paste0(SSP, "_400C_2030CP_NoCC_No"), TRUE ~ paste0(SSP, "_400C_2030CP_",
       Policy, "_NoCC_No"))) %>% filter(!(SSP == "SSP3" & Policy %in% c("10th", "15th")))
   r5_codes <- c("R5OECD90+EU", "R5REF", "R5ASIA", "R5MAF", "R5LAM")
-  r5_labels <- c(`R5OECD90+EU` = "OECD90 + EU", R5REF = "Reforming economies", R5ASIA = "Asia", R5MAF = "Middle East & Africa",
-      R5LAM = "Latin America")
-  r5_colours <- c(`OECD90 + EU` = "#4E79A7", `Reforming economies` = "#8E6C8A", Asia = "#E5A03E", `Middle East & Africa` = "#59A14F",
-      `Latin America` = "#D3725B")
+  r17_regions <- c("XE25", "JPN", "IND", "TUR", "CHN", "USA", "XER", "XOC", "XSE", "XSA", "CAN", "BRA", "XLM", "CIS", "XME", "XNF", "XAF")
+  r17_codes <- paste0("R17", r17_regions)
+  recipient_regions <- list(
+      `10th` = c("IND", "XSA", "XNF", "XAF"),
+      `15th` = c("IND", "BRA", "XSA", "XSE", "XME", "XNF", "XAF"),
+      `20th` = c("CHN", "IND", "BRA", "XSA", "XSE", "XME", "XLM", "XNF", "XAF", "CIS"))
+  classification_lookup <- bind_rows(lapply(names(recipient_regions), function(threshold) {
+      tibble(Threshold_class = threshold, Region_code = r17_codes, Region_group = if_else(r17_regions %in% recipient_regions[[threshold]],
+          "Developing / Recipient", "Developed / Provider"))
+  }))
+  if (nrow(classification_lookup) != 3L * length(r17_codes) || anyDuplicated(classification_lookup[c("Threshold_class", "Region_code")])) {
+      stop("Each threshold must classify every R17 region exactly once.")
+  }
+  policy_thresholds <- c(Default = "15th", `10th` = "10th", `15th` = "15th", `20th` = "20th")
+  policy_classification <- bind_rows(lapply(names(policy_thresholds), function(policy) {
+      classification_lookup %>% filter(Threshold_class == policy_thresholds[[policy]]) %>% mutate(Policy = policy, .before = 1)
+  }))
+  region_group_levels <- c("Developed / Provider", "Developing / Recipient")
+  region_group_colours <- c(`Developed / Provider` = "#6B7D2A", `Developing / Recipient` = "#D6A72C")
   policy_colours <- c(BaU = "#4D4D4D", Default = "#8C6BB1", `10th` = "#0072B2", `15th` = "#D55E00", `20th` = "#009E73")
   policy_shapes <- c(BaU = 1, Default = 18, `10th` = 16, `15th` = 17, `20th` = 15)
   policy_linetypes <- c(BaU = "22", Default = "longdash", `10th` = "solid", `15th` = "solid", `20th` = "solid")
@@ -1246,8 +1123,8 @@ build_supplementary_figure_9 <- function(project_root) {
   message("Reading PoVExp from: ", gdx_file)
   poverty <- rgdx.param(gdx_file, "PoVExp") %>% transmute(Scenario_id = as.character(Ref), Region_code = as.character(R), Year = as.numeric(as.character(Y)),
       Threshold = as.character(TH), People = as.numeric(PoVExp)) %>% filter(Scenario_id %in% scenario_grid$Scenario_id, Region_code %in%
-      c("WLD", r5_codes), Year %in% years, Threshold == "pop_3.00") %>% inner_join(scenario_grid, by = "Scenario_id")
-  expected_rows <- nrow(scenario_grid) * (length(r5_codes) + 1L) * length(years)
+      c("WLD", r5_codes, r17_codes), Year %in% years, Threshold == "pop_3.00") %>% inner_join(scenario_grid, by = "Scenario_id")
+  expected_rows <- nrow(scenario_grid) * (length(r5_codes) + length(r17_codes) + 1L) * length(years)
   if (nrow(poverty) != expected_rows) {
       stop("Expected ", expected_rows, " poverty observations; found ", nrow(poverty), ".")
   }
@@ -1264,24 +1141,37 @@ build_supplementary_figure_9 <- function(project_root) {
   if (!is.finite(maximum_r5_gap) || maximum_r5_gap > 1) {
       stop("R5 poverty totals do not reproduce the World poverty headcount.")
   }
+  r17_world_check <- poverty %>% filter(Region_code %in% r17_codes) %>% group_by(Scenario_id, Year) %>% summarise(R17_total = sum(People),
+      .groups = "drop") %>% left_join(poverty %>% filter(Region_code == "WLD") %>% select(Scenario_id, Year, World_total = People),
+      by = c("Scenario_id", "Year"))
+  maximum_r17_gap <- max(abs(r17_world_check$R17_total - r17_world_check$World_total))
+  if (!is.finite(maximum_r17_gap) || maximum_r17_gap > 1) {
+      stop("R17 poverty totals do not reproduce the World poverty headcount.")
+  }
   world_poverty <- poverty %>% filter(Region_code == "WLD") %>% transmute(SSP = factor(SSP, levels = ssp_levels), Policy = factor(Policy,
       levels = policy_levels), Year, Population_million = People/1e+06)
-  baseline_2050 <- poverty %>% filter(Region_code %in% r5_codes, Policy == "BaU", Year == comparison_year) %>% select(SSP,
+  baseline_2050 <- poverty %>% filter(Region_code %in% r17_codes, Policy == "BaU", Year == comparison_year) %>% select(SSP,
       Region_code, BaU_people = People)
-  r5_additional_2050 <- poverty %>% filter(Region_code %in% r5_codes, Policy != "BaU", Year == comparison_year) %>% left_join(baseline_2050,
-      by = c("SSP", "Region_code")) %>% mutate(Additional_million = (People - BaU_people)/1e+06, SSP = factor(SSP, levels = ssp_levels),
-      Policy = factor(Policy, levels = policy_levels[-1]), R5_region = factor(unname(r5_labels[Region_code]), levels = unname(r5_labels[r5_codes])))
-  expected_additional_rows <- (nrow(scenario_grid) - length(ssp_levels)) * length(r5_codes)
-  if (nrow(r5_additional_2050) != expected_additional_rows || any(!is.finite(r5_additional_2050$Additional_million))) {
-      stop("The 2050 R5 additional-poverty decomposition is incomplete.")
+  r17_additional_2050 <- poverty %>% filter(Region_code %in% r17_codes, Policy != "BaU", Year == comparison_year) %>% left_join(baseline_2050,
+      by = c("SSP", "Region_code")) %>% left_join(policy_classification, by = c("Policy", "Region_code")) %>% mutate(Additional_million =
+      (People - BaU_people)/1e+06)
+  if (any(is.na(r17_additional_2050$Region_group)) || any(!is.finite(r17_additional_2050$Additional_million))) {
+      stop("The threshold-specific R17 poverty classification is incomplete.")
   }
-  additional_world_check <- r5_additional_2050 %>% group_by(SSP, Policy) %>% summarise(R5_additional = sum(Additional_million),
+  r17_group_additional_2050 <- r17_additional_2050 %>% group_by(SSP, Policy, Region_group) %>% summarise(Additional_million =
+      sum(Additional_million), .groups = "drop") %>% mutate(SSP = factor(SSP, levels = ssp_levels), Policy = factor(Policy,
+      levels = policy_levels[-1]), Region_group = factor(Region_group, levels = region_group_levels))
+  expected_group_rows <- (nrow(scenario_grid) - length(ssp_levels)) * length(region_group_levels)
+  if (nrow(r17_group_additional_2050) != expected_group_rows) {
+      stop("The 2050 two-region additional-poverty decomposition is incomplete.")
+  }
+  additional_world_check <- r17_group_additional_2050 %>% group_by(SSP, Policy) %>% summarise(R17_additional = sum(Additional_million),
       .groups = "drop") %>% left_join(world_poverty %>% filter(Policy != "BaU", Year == comparison_year) %>% left_join(world_poverty %>%
       filter(Policy == "BaU", Year == comparison_year) %>% select(SSP, BaU_world = Population_million), by = "SSP") %>% transmute(SSP,
       Policy, World_additional = Population_million - BaU_world), by = c("SSP", "Policy"))
-  maximum_additional_gap <- max(abs(additional_world_check$R5_additional - additional_world_check$World_additional))
+  maximum_additional_gap <- max(abs(additional_world_check$R17_additional - additional_world_check$World_additional))
   if (!is.finite(maximum_additional_gap) || maximum_additional_gap > 1e-06) {
-      stop("R5 additional-poverty totals do not reproduce the World difference.")
+      stop("R17 two-region poverty totals do not reproduce the World difference.")
   }
   theme_nature <- function() {
       theme_classic(base_family = "Arial", base_size = 8) + theme(text = element_text(colour = ink), axis.title = element_text(size = 8),
@@ -1303,11 +1193,11 @@ build_supplementary_figure_9 <- function(project_root) {
       0.1))) + labs(x = NULL, y = "Population below US$3.00/day (million)") + guides(colour = guide_legend(nrow = 1), shape = guide_legend(nrow = 1),
       linetype = guide_legend(nrow = 1)) + theme_nature() + theme(strip.background = element_blank(), strip.text = element_text(size = 8.2,
       face = "bold"))
-  p_b <- ggplot(r5_additional_2050, aes(x = Policy, y = Additional_million, fill = R5_region)) + geom_hline(yintercept = 0,
+  p_b <- ggplot(r17_group_additional_2050, aes(x = Policy, y = Additional_million, fill = Region_group)) + geom_hline(yintercept = 0,
       colour = ink, linewidth = 0.32) + geom_col(width = 0.68, colour = "white", linewidth = 0.16) + facet_wrap(~SSP, nrow = 1,
       drop = FALSE) + scale_x_discrete(limits = policy_levels[-1], labels = c(Default = "Default", `10th` = "10k", `15th` = "15k",
-      `20th` = "20k"), drop = FALSE) + scale_fill_manual(values = r5_colours, breaks = unname(r5_labels[r5_codes]), drop = FALSE,
-      guide = guide_legend(title = "R5 region", nrow = 2, byrow = TRUE)) + scale_y_continuous(labels = label_number(accuracy = 1),
+      `20th` = "20k"), drop = FALSE) + scale_fill_manual(values = region_group_colours, breaks = region_group_levels, drop = FALSE,
+      guide = guide_legend(title = NULL, nrow = 1, byrow = TRUE)) + scale_y_continuous(labels = label_number(accuracy = 1),
       expand = expansion(mult = c(0.1, 0.14))) + labs(x = NULL, y = "Additional population below US$3.00/day\nrelative to BaU in 2050 (million)") +
       theme_nature() + theme(strip.background = element_blank(), strip.text = element_text(size = 8.2, face = "bold"), legend.box = "horizontal")
   p <- (p_a/p_b + plot_layout(heights = c(0.92, 1.08)) + plot_annotation(tag_levels = "a")) & theme(plot.background = element_rect(fill = "white",
@@ -1315,7 +1205,7 @@ build_supplementary_figure_9 <- function(project_root) {
   apply_ncc_theme(p)
 }
 
-build_supplementary_figure_10 <- function(project_root) {
+build_supplementary_figure_9 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -1429,7 +1319,7 @@ build_supplementary_figure_10 <- function(project_root) {
   apply_ncc_theme(plot_lorenz)
 }
 
-build_supplementary_figure_11 <- function(project_root) {
+build_supplementary_figure_10 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -1472,7 +1362,7 @@ build_supplementary_figure_11 <- function(project_root) {
   if (!length(gams_candidates)) stop("A GAMS system directory was not found.")
   igdx(gams_candidates[[1]])
   gdx_file <- file.path(project_root, "data", "All", "AnalysisExpenditure.gdx")
-  output_dir <- file.path(project_root, "output", "Figure", "analysis")
+  output_dir <- tempdir()
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   output_stem <- file.path(output_dir, "09_sensitivity_inequality_welfare_2050_SSP1_SSP3")
   comparison_year <- 2050
@@ -1641,7 +1531,7 @@ build_supplementary_figure_11 <- function(project_root) {
   apply_ncc_theme(figure)
 }
 
-build_supplementary_figure_12 <- function(project_root) {
+build_supplementary_figure_11 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -1682,7 +1572,7 @@ build_supplementary_figure_12 <- function(project_root) {
   if (!length(gams_candidates)) stop("A GAMS system directory was not found.")
   igdx(gams_candidates[[1]])
   gdx_file <- file.path(project_root, "data", "All", "global_17_IAMC.gdx")
-  analysis_dir <- file.path(project_root, "output", "Figure", "analysis")
+  analysis_dir <- tempdir()
   wi_file <- file.path(analysis_dir, "09_sensitivity_inequality_welfare_2050_SSP1_SSP3_data.csv")
   output_stem <- file.path(analysis_dir, "10_welfare_vs_cumulative_consumption_loss_2050")
   dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
@@ -1752,7 +1642,7 @@ build_supplementary_figure_12 <- function(project_root) {
   apply_ncc_theme(p)
 }
 
-build_supplementary_figure_13 <- function(project_root) {
+build_supplementary_figure_12 <- function(project_root) {
   old_dir <- getwd()
   on.exit(setwd(old_dir), add = TRUE)
   setwd(project_root)
@@ -1795,7 +1685,7 @@ build_supplementary_figure_13 <- function(project_root) {
   igdx(gams_candidates[[1]])
   gdx_file <- file.path(project_root, "data", "All", "AnalysisExpenditure.gdx")
   region_map_file <- file.path(project_root, "data", "All", "RegionmapRagg.map")
-  output_dir <- file.path(project_root, "output", "Figure", "analysis")
+  output_dir <- tempdir()
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   output_stem <- file.path(output_dir, "12_SSP2_Gini_exp_change_boxplots_R5_2050")
   if (!file.exists(region_map_file)) {
@@ -1889,15 +1779,13 @@ generate_supplementary_figures <- function(project_root, output_dirs) {
   save_figure_pair(build_supplementary_figure_2(project_root), "SupplementaryFig2_transfer_emissions_equivalent_combined_2030_2050", 180, 88, output_dirs)
   save_figure_pair(build_supplementary_figure_3(project_root), "SupplementaryFig3_primary_energy_supply_2020_2050", 180, 180, output_dirs)
   save_figure_pair(build_supplementary_figure_4(project_root), "SupplementaryFig4_cumulative_consumption_gdp_loss_2050", 180, 92, output_dirs)
-  result <- build_supplementary_figure_5(project_root)
-  save_figure_pair(result$plot, "SupplementaryFig5_SSP2_additional_poverty_all_lines_2050", 180, result$height, output_dirs)
-  save_figure_pair(build_supplementary_figure_6(project_root), "SupplementaryFig6_sensitivity_world_population_GDP_SSP1_SSP3", 180, 82, output_dirs)
-  save_figure_pair(build_supplementary_figure_7(project_root), "SupplementaryFig7_sensitivity_provider_carbon_revenue_SSP1_SSP3", 180, 190, output_dirs)
-  save_figure_pair(build_supplementary_figure_8(project_root), "SupplementaryFig8_sensitivity_cumulative_consumption_GDP_loss_thresholds", 180, 142, output_dirs)
-  save_figure_pair(build_supplementary_figure_9(project_root), "SupplementaryFig9_sensitivity_poverty_population_SSP1_SSP3", 180, 158, output_dirs)
-  save_figure_pair(build_supplementary_figure_10(project_root), "SupplementaryFig10_sensitivity_lorenz_curves_2050_SSP1_SSP3", 180, 83, output_dirs)
-  save_figure_pair(build_supplementary_figure_11(project_root), "SupplementaryFig11_sensitivity_inequality_welfare_2050_SSP1_SSP3", 180, 155, output_dirs)
-  save_figure_pair(build_supplementary_figure_12(project_root), "SupplementaryFig12_welfare_vs_cumulative_consumption_loss_2050", 150, 112, output_dirs)
-  save_figure_pair(build_supplementary_figure_13(project_root), "SupplementaryFig13_SSP2_Gini_exp_change_boxplots_R5_2050", 180, 125, output_dirs)
+  save_figure_pair(build_supplementary_figure_5(project_root), "SupplementaryFig5_sensitivity_world_population_GDP_SSP1_SSP3", 180, 82, output_dirs)
+  save_figure_pair(build_supplementary_figure_6(project_root), "SupplementaryFig6_sensitivity_provider_carbon_revenue_SSP1_SSP3", 180, 190, output_dirs)
+  save_figure_pair(build_supplementary_figure_7(project_root), "SupplementaryFig7_sensitivity_cumulative_consumption_GDP_loss_thresholds", 180, 142, output_dirs)
+  save_figure_pair(build_supplementary_figure_8(project_root), "SupplementaryFig8_sensitivity_poverty_population_SSP1_SSP3", 180, 158, output_dirs)
+  save_figure_pair(build_supplementary_figure_9(project_root), "SupplementaryFig9_sensitivity_lorenz_curves_2050_SSP1_SSP3", 180, 83, output_dirs)
+  save_figure_pair(build_supplementary_figure_10(project_root), "SupplementaryFig10_sensitivity_inequality_welfare_2050_SSP1_SSP3", 180, 155, output_dirs)
+  save_figure_pair(build_supplementary_figure_11(project_root), "SupplementaryFig11_welfare_vs_cumulative_consumption_loss_2050", 150, 112, output_dirs)
+  save_figure_pair(build_supplementary_figure_12(project_root), "SupplementaryFig12_SSP2_Gini_exp_change_boxplots_R5_2050", 180, 125, output_dirs)
   invisible(NULL)
 }
